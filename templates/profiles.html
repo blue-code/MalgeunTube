@@ -1,0 +1,303 @@
+{% extends 'base.html' %}
+
+{% block title %}프로필 선택 - MalgeunTube{% endblock %}
+
+{% block content %}
+<div class="profile-selection-container">
+    <h1>프로필을 선택하거나 생성하세요</h1>
+    
+    <div class="profile-grid">
+        {% for profile in profiles %}
+        <div class="profile-card {% if current_profile and current_profile.id == profile.id %}active{% endif %}">
+            <button class="profile-avatar-btn" onclick="switchProfile('{{ profile.id }}')">
+                <img src="{{ profile.avatar }}" alt="{{ profile.name }}" class="profile-avatar">
+                <span>{{ profile.name }}</span>
+            </button>
+            <div class="profile-actions">
+                <button class="edit-btn" onclick="openEditModal('{{ profile.id }}', '{{ profile.name }}', '{{ profile.avatar }}')">⚙️</button>
+                <button class="delete-btn" onclick="deleteProfile('{{ profile.id }}', '{{ profile.name }}')">🗑️</button>
+            </div>
+        </div>
+        {% endfor %}
+        
+        <div class="profile-card add-profile-card">
+            <button class="profile-add-btn" onclick="openCreateModal()">
+                <span>➕</span>
+                <span>새 프로필</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 프로필 생성 모달 -->
+<div id="create-profile-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>새 프로필 생성</h3>
+            <button class="modal-close" onclick="closeCreateModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="create-profile-form">
+                <div class="form-group">
+                    <label for="profile-name">프로필 이름</label>
+                    <input type="text" id="profile-name" name="name" required>
+                </div>
+                <div class="form-group">
+                    <label for="profile-avatar-upload">프로필 사진 (선택 사항)</label>
+                    <input type="file" id="profile-avatar-upload" name="avatar" accept="image/*">
+                </div>
+                <button type="submit" class="btn">생성</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 프로필 편집 모달 (나중에 필요시 확장) -->
+<div id="edit-profile-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>프로필 편집</h3>
+            <button class="modal-close" onclick="closeEditModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <p>이름 변경 및 아바타 업로드 기능은 추후 추가될 예정입니다.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+.profile-selection-container {
+    max-width: 900px;
+    margin: 2rem auto;
+    padding: 1rem;
+    text-align: center;
+}
+.profile-selection-container h1 {
+    font-size: 1.8rem;
+    margin-bottom: 2rem;
+}
+.profile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1.5rem;
+    justify-content: center;
+}
+.profile-card {
+    background-color: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 1.5rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    border: 2px solid transparent;
+}
+.profile-card.active {
+    border-color: var(--accent);
+}
+.profile-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+.profile-avatar-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+.profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--border);
+    transition: border-color 0.2s;
+}
+.profile-avatar-btn:hover .profile-avatar {
+    border-color: var(--accent);
+}
+.profile-add-btn {
+    background-color: var(--bg-tertiary);
+    border: 3px dashed var(--border);
+    border-radius: 50%;
+    width: 100px;
+    height: 100px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-size: 2.5rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+.profile-add-btn:hover {
+    background-color: var(--border);
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+.profile-add-btn span:last-child {
+    font-size: 1rem;
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+.profile-actions {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    gap: 0.2rem;
+}
+.profile-actions button {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 0.3rem;
+    border-radius: 50%;
+    transition: background-color 0.2s, color 0.2s;
+}
+.profile-actions button:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+.form-group {
+    margin-bottom: 1rem;
+    text-align: left;
+}
+.form-group label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+.form-group input[type="text"],
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-size: 1rem;
+    box-sizing: border-box;
+}
+.form-group input[type="file"] {
+    padding: 0.5rem;
+}
+</style>
+
+<script>
+function openCreateModal() {
+    document.getElementById('create-profile-modal').classList.add('show');
+    document.getElementById('profile-name').focus();
+}
+
+function closeCreateModal() {
+    document.getElementById('create-profile-modal').classList.remove('show');
+    document.getElementById('create-profile-form').reset();
+}
+
+function openEditModal(profileId, profileName, profileAvatar) {
+    // Implement edit logic here
+    // For now, just show a message or a simplified modal
+    document.getElementById('edit-profile-modal').classList.add('show');
+}
+
+function closeEditModal() {
+    document.getElementById('edit-profile-modal').classList.remove('show');
+}
+
+async function createProfile() {
+    const form = document.getElementById('create-profile-form');
+    const formData = new FormData(form);
+    
+    const name = formData.get('name');
+    if (!name.trim()) {
+        showToast('프로필 이름을 입력해주세요.');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/profile/create', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('프로필 생성 완료!');
+            location.reload();
+        } else {
+            showToast(data.message || '프로필 생성 실패');
+        }
+    } catch (error) {
+        showToast('프로필 생성 중 오류 발생');
+        console.error('Error creating profile:', error);
+    }
+}
+
+async function switchProfile(profileId) {
+    try {
+        const response = await fetch('/api/profile/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profile_id: profileId })
+        });
+        const data = await response.json();
+        if (data.success) {
+            showToast('프로필 전환 완료!');
+            window.location.href = '/'; // 메인 페이지로 이동
+        } else {
+            showToast(data.message || '프로필 전환 실패');
+        }
+    } catch (error) {
+        showToast('프로필 전환 중 오류 발생');
+        console.error('Error switching profile:', error);
+    }
+}
+
+async function deleteProfile(profileId, profileName) {
+    if (confirm(`'${profileName}' 프로필을 정말 삭제하시겠습니까? 관련 데이터도 모두 삭제됩니다.`)) {
+        try {
+            const response = await fetch('/api/profile/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profile_id: profileId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                showToast('프로필 삭제 완료!');
+                location.reload();
+            } else {
+                showToast(data.message || '프로필 삭제 실패');
+            }
+        } catch (error) {
+            showToast('프로필 삭제 중 오류 발생');
+            console.error('Error deleting profile:', error);
+        }
+    }
+}
+
+document.getElementById('create-profile-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    createProfile();
+});
+
+// 모달 외부 클릭 시 닫기
+document.getElementById('create-profile-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeCreateModal();
+});
+document.getElementById('edit-profile-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditModal();
+});
+
+</script>
+{% endblock %}

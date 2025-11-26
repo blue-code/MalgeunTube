@@ -1,8 +1,12 @@
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_file, after_this_request
+from werkzeug.utils import secure_filename
 import yt_dlp
 import json
 import os
 import random
+import threading
+import uuid
+import glob
 from datetime import datetime
 from functools import lru_cache
 
@@ -11,21 +15,27 @@ app.secret_key = 'adfree-tube-secret-key-2024'
 
 # 데이터 디렉토리 설정
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
-HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
-CHANNELS_FILE = os.path.join(DATA_DIR, 'channels.json')
-PLAYLISTS_FILE = os.path.join(DATA_DIR, 'playlists.json')
+HISTORY_FILE = os.path.join(DATA_DIR, 'history.json') # Default/Legacy
+CHANNELS_FILE = os.path.join(DATA_DIR, 'channels.json') # Default/Legacy
+PLAYLISTS_FILE = os.path.join(DATA_DIR, 'playlists.json') # Default/Legacy
+PROFILES_FILE = os.path.join(DATA_DIR, 'profiles.json')
 DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), 'downloads')
+UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'avatars')
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # ============== 데이터 관리 함수 ==============
-
-import threading
-import uuid
-import glob
 
 def load_json(filepath):
     if os.path.exists(filepath):
@@ -132,11 +142,132 @@ def save_json(filepath, data):
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+# ============== 프로필 관리 함수 ==============
+
+def load_profiles():
+    return load_json(PROFILES_FILE)
+
+def save_profiles(profiles):
+    save_json(PROFILES_FILE, profiles)
+
+def get_profile(profile_id):
+    profiles = load_profiles()
+    for p in profiles:
+        if p['id'] == profile_id:
+            return p
+    return None
+
+def get_data_path(file_type):
+    profile_id = session.get('profile_id')
+    if not profile_id:
+        # Fallback to default files if no profile selected (shouldn't happen in main app)
+        if file_type == 'history': return HISTORY_FILE
+        if file_type == 'channels': return CHANNELS_FILE
+        if file_type == 'playlists': return PLAYLISTS_FILE
+    
+    # Profile specific paths
+    if file_type == 'history': return os.path.join(DATA_DIR, f'history_{profile_id}.json')
+    if file_type == 'channels': return os.path.join(DATA_DIR, f'channels_{profile_id}.json')
+    if file_type == 'playlists': return os.path.join(DATA_DIR, f'playlists_{profile_id}.json')
+    return None
+
+# ============== 프로필 라우트 ==============
+
+@app.route('/profiles')
+def profiles_view():
+    profiles = load_profiles()
+    return render_template('profiles.html', profiles=profiles)
+
+@app.route('/api/profile/create', methods=['POST'])
+def create_profile():
+    name = request.form.get('name')
+    if not name:
+        return jsonify({'success': False, 'message': '이름을 입력해주세요.'})
+    
+    avatar_path = '/static/avatars/default.png'
+    if 'avatar' in request.files:
+        file = request.files['avatar']
+        if file and file.filename and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            unique_filename = f"{uuid.uuid4()}_{filename}"
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
+            avatar_path = f"/static/avatars/{unique_filename}"
+    
+    new_profile = {
+        'id': str(uuid.uuid4()),
+        'name': name,
+        'avatar': avatar_path,
+        'created_at': datetime.now().isoformat()
+    }
+    
+    profiles = load_profiles()
+    profiles.append(new_profile)
+    save_profiles(profiles)
+    
+    return jsonify({'success': True})
+
+@app.route('/api/profile/switch', methods=['POST'])
+def switch_profile():
+    data = request.get_json()
+    profile_id = data.get('profile_id')
+    
+    if get_profile(profile_id):
+        session['profile_id'] = profile_id
+        return jsonify({'success': True})
+    
+    return jsonify({'success': False, 'message': '프로필을 찾을 수 없습니다.'})
+
+@app.route('/api/profile/delete', methods=['POST'])
+def delete_profile():
+    data = request.get_json()
+    profile_id = data.get('profile_id')
+    
+    profiles = load_profiles()
+    profiles = [p for p in profiles if p['id'] != profile_id]
+    save_profiles(profiles)
+    
+    # 데이터 파일 삭제
+    try:
+        for ftype in ['history', 'channels', 'playlists']:
+            path = os.path.join(DATA_DIR, f'{ftype}_{profile_id}.json')
+            if os.path.exists(path):
+                os.remove(path)
+    except:
+        pass
+        
+    if session.get('profile_id') == profile_id:
+        session.pop('profile_id', None)
+        
+    return jsonify({'success': True})
+
+@app.before_request
+def check_profile():
+    # Static resources and specific routes don't need profile check
+    if request.endpoint and (
+        'static' in request.endpoint or 
+        'api/profile' in request.endpoint or 
+        request.endpoint == 'profiles_view'
+    ):
+        return
+
+    # If no profile in session, redirect to profiles page
+    if not session.get('profile_id'):
+        return redirect(url_for('profiles_view'))
+    
+    # Pass current profile to templates
+    if request.endpoint: # Only for view functions
+        profile = get_profile(session['profile_id'])
+        # If session has ID but profile deleted, force logout
+        if not profile: 
+            session.pop('profile_id', None)
+            return redirect(url_for('profiles_view'))
+        app.jinja_env.globals['current_profile'] = profile
+
 def load_history():
-    return load_json(HISTORY_FILE)
+    return load_json(get_data_path('history'))
 
 def save_history(history):
-    save_json(HISTORY_FILE, history)
+    save_json(get_data_path('history'), history)
 
 def add_to_history(video_info):
     history = load_history()
@@ -147,10 +278,10 @@ def add_to_history(video_info):
     save_history(history)
 
 def load_channels():
-    return load_json(CHANNELS_FILE)
+    return load_json(get_data_path('channels'))
 
 def save_channels(channels):
-    save_json(CHANNELS_FILE, channels)
+    save_json(get_data_path('channels'), channels)
 
 def add_channel(channel_info):
     channels = load_channels()
@@ -171,10 +302,10 @@ def is_channel_subscribed(channel_id):
     return any(c.get('channel_id') == channel_id for c in channels)
 
 def load_playlists():
-    return load_json(PLAYLISTS_FILE)
+    return load_json(get_data_path('playlists'))
 
 def save_playlists(playlists):
-    save_json(PLAYLISTS_FILE, playlists)
+    save_json(get_data_path('playlists'), playlists)
 
 def create_playlist(name):
     playlists = load_playlists()

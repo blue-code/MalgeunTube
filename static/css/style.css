@@ -173,6 +173,35 @@ button {
     display: none;
 }
 
+/* Profile Nav Link */
+.profile-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    transition: background-color 0.2s;
+    white-space: nowrap;
+    color: var(--text-primary);
+}
+
+.profile-nav-link:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.profile-nav-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid var(--border);
+}
+
+.profile-nav-name {
+    font-weight: 500;
+}
+
 .theme-btn {
     background: none;
     border: none;
@@ -1299,6 +1328,10 @@ button {
         display: inline;
     }
     
+    .profile-nav-link .profile-nav-name {
+        display: inline;
+    }
+
     .bottom-nav {
         display: flex;
     }
