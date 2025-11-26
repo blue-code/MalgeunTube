@@ -1,0 +1,230 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ query }} - 검색 결과{% endblock %}
+
+{% block content %}
+<div class="search-container">
+    {% if query %}
+    <h2>"{{ query }}" 검색 결과</h2>
+    
+    {% if results.error %}
+    <div class="error-message">
+        <p>검색 중 오류가 발생했습니다: {{ results.error }}</p>
+    </div>
+    {% elif results %}
+    <div class="search-results">
+        {% for video in results %}
+        <div class="search-item">
+            <a href="{{ url_for('watch', v=video.id) }}" class="search-link">
+                <div class="thumbnail">
+                    <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                    {% if video.duration %}
+                    <span class="duration">{{ video.duration|duration }}</span>
+                    {% endif %}
+                </div>
+                <div class="search-info">
+                    <h3>{{ video.title }}</h3>
+                    <p class="channel">{{ video.channel }}</p>
+                    {% if video.view_count %}
+                    <p class="views">조회수 {{ video.view_count|views }}회</p>
+                    {% endif %}
+                </div>
+            </a>
+            <div class="search-actions">
+                {% if video.channel_id %}
+                <button class="action-btn subscribe-btn {% if video.is_subscribed %}subscribed{% endif %}" 
+                        onclick="toggleSubscribe(this, '{{ video.channel_id }}', '{{ video.channel|e }}')"
+                        title="{% if video.is_subscribed %}구독 취소{% else %}구독{% endif %}">
+                    {% if video.is_subscribed %}★{% else %}☆{% endif %}
+                </button>
+                {% endif %}
+                <button class="action-btn" 
+                        onclick="openPlaylistModal(this)"
+                        data-id="{{ video.id }}"
+                        data-title="{{ video.title|e }}"
+                        data-thumbnail="{{ video.thumbnail }}"
+                        data-duration="{{ video.duration or 0 }}"
+                        data-channel="{{ video.channel|e }}"
+                        title="플레이리스트에 추가">
+                    ➕
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="no-results">
+        <p>검색 결과가 없습니다.</p>
+    </div>
+    {% endif %}
+    
+    {% else %}
+    <div class="search-placeholder">
+        <div class="empty-icon">🔍</div>
+        <h3>검색어를 입력하세요</h3>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 플레이리스트 모달 -->
+<div id="playlist-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>플레이리스트에 추가</h3>
+            <button class="modal-close" onclick="closePlaylistModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="playlist-list">
+                {% if user_playlists %}
+                    {% for pl in user_playlists %}
+                    <button class="playlist-option" onclick="addToPlaylist('{{ pl.id }}')">
+                        📁 {{ pl.name }} ({{ pl.videos|length }}개)
+                    </button>
+                    {% endfor %}
+                {% else %}
+                    <p style="color:var(--text-secondary); text-align:center; padding:1rem;">생성된 플레이리스트가 없습니다.</p>
+                {% endif %}
+            </div>
+            <div class="create-playlist">
+                <input type="text" id="new-playlist-name" placeholder="새 플레이리스트 이름">
+                <button onclick="createAndAddPlaylist()" class="btn">생성</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentVideoData = null;
+
+function openPlaylistModal(btn) {
+    currentVideoData = {
+        id: btn.dataset.id,
+        title: btn.dataset.title,
+        thumbnail: btn.dataset.thumbnail,
+        duration: parseFloat(btn.dataset.duration),
+        channel: btn.dataset.channel
+    };
+    document.getElementById('playlist-modal').classList.add('show');
+    document.getElementById('new-playlist-name').value = '';
+}
+
+function closePlaylistModal() {
+    document.getElementById('playlist-modal').classList.remove('show');
+    currentVideoData = null;
+}
+
+async function addToPlaylist(playlistId) {
+    if (!currentVideoData) return;
+    
+    try {
+        const response = await fetch('/api/playlist/' + playlistId + '/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(currentVideoData)
+        });
+        
+        if (response.ok) {
+            showToast('추가 완료');
+            closePlaylistModal();
+        } else {
+            showToast('이미 추가됨');
+        }
+    } catch (e) {
+        showToast('오류 발생');
+    }
+}
+
+async function createAndAddPlaylist() {
+    if (!currentVideoData) return;
+    
+    const nameInput = document.getElementById('new-playlist-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        showToast('이름을 입력하세요');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/playlist/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name })
+        });
+        
+        const data = await response.json();
+        if (data.playlist_id) {
+            await addToPlaylist(data.playlist_id);
+            location.reload(); // 목록 갱신을 위해 새로고침
+        }
+    } catch (e) {
+        showToast('생성 실패');
+    }
+}
+
+async function toggleSubscribe(btn, channelId, channelName) {
+    const isSubscribed = btn.classList.contains('subscribed');
+    const channelUrl = `https://www.youtube.com/channel/${channelId}`;
+    
+    try {
+        const endpoint = isSubscribed ? '/api/channel/unsubscribe' : '/api/channel/subscribe';
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                channel_id: channelId,
+                name: channelName,
+                channel_url: channelUrl
+            })
+        });
+        
+        if (response.ok) {
+            btn.classList.toggle('subscribed');
+            btn.innerHTML = isSubscribed ? '☆' : '★';
+            btn.title = isSubscribed ? '구독' : '구독 취소';
+            showToast(isSubscribed ? '즐겨찾기 해제' : '즐겨찾기 추가');
+        }
+    } catch (e) {
+        showToast('요청 실패');
+    }
+}
+
+// 모달 외부 클릭 닫기
+document.getElementById('playlist-modal').addEventListener('click', function(e) {
+    if (e.target === this) closePlaylistModal();
+});
+
+document.getElementById('new-playlist-name').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') createAndAddPlaylist();
+});
+</script>
+
+<style>
+.no-results, .search-placeholder {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--text-secondary);
+}
+
+.empty-icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+}
+
+.subscribe-btn {
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+}
+
+.subscribe-btn.subscribed {
+    color: #ffd700; /* Gold color for star */
+}
+
+.subscribe-btn:hover {
+    color: var(--text-primary);
+}
+
+.subscribe-btn.subscribed:hover {
+    color: #ffed4a;
+}
+</style>
+{% endblock %}

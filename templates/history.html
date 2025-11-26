@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block title %}시청 기록 - MalgeunTube{% endblock %}
+
+{% block content %}
+<div class="history-container">
+    <div class="history-header">
+        <h2>📝 시청 기록</h2>
+        {% if history %}
+        <button id="clear-history" class="btn btn-danger">기록 삭제</button>
+        {% endif %}
+    </div>
+    
+    {% if history %}
+    <div class="video-grid">
+        {% for video in history %}
+        <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
+            <div class="thumbnail">
+                <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                {% if video.duration %}
+                <span class="duration">{{ video.duration|duration }}</span>
+                {% endif %}
+            </div>
+            <div class="video-info">
+                <h4>{{ video.title }}</h4>
+                <p>{{ video.channel }}</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📺</div>
+        <h3>시청 기록이 없습니다</h3>
+        <p>영상을 시청하면 여기에 기록됩니다</p>
+        <a href="{{ url_for('index') }}" class="btn">홈으로 가기</a>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.getElementById('clear-history')?.addEventListener('click', async function() {
+    if (confirm('모든 시청 기록을 삭제하시겠습니까?')) {
+        const response = await fetch('/api/history/clear', { method: 'POST' });
+        if (response.ok) {
+            window.location.reload();
+        }
+    }
+});
+</script>
+{% endblock %}

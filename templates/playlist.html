@@ -1,0 +1,279 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ playlist.title if playlist else '플레이리스트' }} - MalgeunTube{% endblock %}
+
+{% block content %}
+<div class="playlist-container">
+    {% if playlist and playlist.videos %}
+    <div class="playlist-header-section">
+        <div class="playlist-cover-large">
+            {% if playlist.videos|length > 0 %}
+            <img src="{{ playlist.videos[0].thumbnail }}" alt="">
+            {% endif %}
+            <div class="playlist-overlay">
+                <span>{{ playlist.videos|length }}개 영상</span>
+            </div>
+        </div>
+        <div class="playlist-header-info">
+            <h1>{{ playlist.title }}</h1>
+            {% if playlist.channel %}
+            <p class="playlist-channel">{{ playlist.channel }}</p>
+            {% endif %}
+            {% if playlist.description %}
+            <p class="playlist-desc">{{ playlist.description[:200] }}</p>
+            {% endif %}
+            <div class="playlist-actions">
+                <a href="{{ url_for('watch', v=playlist.videos[0].id, list=playlist.id, index=0) }}" class="btn">
+                    ▶ 전체 재생
+                </a>
+                {% if playlist.is_custom %}
+                <button class="btn btn-danger" onclick="deletePlaylist('{{ playlist.id }}')">
+                    🗑️ 삭제
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="playlist-videos">
+        {% for video in playlist.videos %}
+        <div class="playlist-video-item">
+            <span class="video-index">{{ loop.index }}</span>
+            <a href="{{ url_for('watch', v=video.id, list=playlist.id, index=loop.index0) }}" class="playlist-video-link">
+                <div class="playlist-video-thumb">
+                    <img src="{{ video.thumbnail }}" alt="" loading="lazy">
+                    {% if video.duration %}
+                    <span class="duration">{{ video.duration|duration }}</span>
+                    {% endif %}
+                </div>
+                <div class="playlist-video-info">
+                    <h4>{{ video.title }}</h4>
+                    {% if video.channel %}
+                    <p>{{ video.channel }}</p>
+                    {% endif %}
+                </div>
+            </a>
+            {% if playlist.is_custom %}
+            <button class="remove-btn" onclick="removeFromPlaylist('{{ playlist.id }}', '{{ video.id }}')" title="제거">
+                ✕
+            </button>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    
+    {% elif playlist and playlist.error %}
+    <div class="error-message">
+        <h2>⚠️ 플레이리스트를 불러올 수 없습니다</h2>
+        <p>{{ playlist.error }}</p>
+        <a href="{{ url_for('index') }}" class="btn">홈으로</a>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📁</div>
+        <h3>플레이리스트가 비어있습니다</h3>
+        <p>영상을 추가해보세요</p>
+        <a href="{{ url_for('index') }}" class="btn">홈으로</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.playlist-container {
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.playlist-header-section {
+    display: flex;
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background-color: var(--bg-secondary);
+    border-radius: 12px;
+}
+
+.playlist-cover-large {
+    width: 280px;
+    aspect-ratio: 16/9;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.playlist-cover-large img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.playlist-overlay {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 0.5rem;
+    background: linear-gradient(transparent, rgba(0,0,0,0.8));
+    color: white;
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+.playlist-header-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.playlist-header-info h1 {
+    font-size: 1.5rem;
+    line-height: 1.3;
+}
+
+.playlist-channel {
+    color: var(--text-secondary);
+}
+
+.playlist-desc {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.playlist-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: auto;
+}
+
+.playlist-videos {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.playlist-video-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    transition: background-color 0.2s;
+}
+
+.playlist-video-item:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.video-index {
+    width: 24px;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.playlist-video-link {
+    display: flex;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.playlist-video-thumb {
+    width: 160px;
+    aspect-ratio: 16/9;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.playlist-video-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.playlist-video-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.playlist-video-info h4 {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-bottom: 0.25rem;
+}
+
+.playlist-video-info p {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+.remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 0.5rem;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.remove-btn:hover {
+    opacity: 1;
+    color: #ff4444;
+}
+
+@media (max-width: 768px) {
+    .playlist-header-section {
+        flex-direction: column;
+    }
+    
+    .playlist-cover-large {
+        width: 100%;
+    }
+    
+    .playlist-video-thumb {
+        width: 120px;
+    }
+    
+    .playlist-video-info h4 {
+        font-size: 0.875rem;
+    }
+}
+</style>
+
+<script>
+async function deletePlaylist(playlistId) {
+    if (confirm('정말 이 플레이리스트를 삭제하시겠습니까?')) {
+        const response = await fetch('/api/playlist/' + playlistId + '/delete', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            window.location.href = '/playlists';
+        }
+    }
+}
+
+async function removeFromPlaylist(playlistId, videoId) {
+    const response = await fetch('/api/playlist/' + playlistId + '/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ video_id: videoId })
+    });
+    if (response.ok) {
+        location.reload();
+    }
+}
+</script>
+{% endblock %}

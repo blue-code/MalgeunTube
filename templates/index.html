@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+
+{% block title %}MalgeunTube - 광고 없는 유튜브{% endblock %}
+
+{% block content %}
+<div class="home-container">
+    <div class="hero">
+        <h1>🎬 광고 없이 유튜브를</h1>
+        <p>YouTube URL 또는 플레이리스트를 입력하세요</p>
+        
+        <form class="url-form" id="url-form">
+            <input type="text" id="video-url" placeholder="YouTube URL을 붙여넣으세요..." autocomplete="off">
+            <button type="submit">▶</button>
+        </form>
+    </div>
+    
+    {% if trending %}
+    <div class="section">
+        <div class="section-header">
+            <h2>🔥 인기 급상승</h2>
+        </div>
+        <div class="video-grid">
+            {% for video in trending %}
+            <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
+                <div class="thumbnail">
+                    <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                    {% if video.duration %}
+                    <span class="duration">{{ video.duration|duration }}</span>
+                    {% endif %}
+                </div>
+                <div class="video-info">
+                    <h4>{{ video.title }}</h4>
+                    <p>{{ video.channel }}</p>
+                    {% if video.view_count %}
+                    <p class="views">{{ video.view_count|views }}회</p>
+                    {% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if channels %}
+    <div class="section">
+        <div class="section-header">
+            <h2>⭐ 즐겨찾기 채널</h2>
+            <a href="{{ url_for('channels') }}" class="see-all">전체보기</a>
+        </div>
+        <div class="channel-chips">
+            {% for channel in channels %}
+            <a href="{{ url_for('channel_detail', channel_id=channel.channel_id) }}" class="channel-chip">
+                <div class="channel-avatar">{{ channel.name[0] if channel.name else '?' }}</div>
+                <span>{{ channel.name }}</span>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+    
+    {% if history %}
+    <div class="section">
+        <div class="section-header">
+            <h2>📝 최근 시청</h2>
+            <a href="{{ url_for('history') }}" class="see-all">전체보기</a>
+        </div>
+        <div class="video-grid">
+            {% for video in history %}
+            <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
+                <div class="thumbnail">
+                    <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                    {% if video.duration %}
+                    <span class="duration">{{ video.duration|duration }}</span>
+                    {% endif %}
+                </div>
+                <div class="video-info">
+                    <h4>{{ video.title }}</h4>
+                    <p>{{ video.channel }}</p>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+document.getElementById('url-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const url = document.getElementById('video-url').value.trim();
+    if (url) {
+        const playlistMatch = url.match(/[?&]list=([^&]+)/);
+        const videoMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/);
+        
+        if (playlistMatch && !videoMatch) {
+            window.location.href = '/playlist/' + playlistMatch[1];
+        } else if (videoMatch) {
+            let watchUrl = '/watch?v=' + videoMatch[1];
+            if (playlistMatch) {
+                watchUrl += '&list=' + playlistMatch[1];
+            }
+            window.location.href = watchUrl;
+        } else if (/^[a-zA-Z0-9_-]{11}$/.test(url)) {
+            window.location.href = '/watch?v=' + url;
+        } else {
+            showToast('올바른 YouTube URL을 입력해주세요');
+        }
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.env
+.venv/
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Project-specific ignored files
+data/*.json
+downloads/
+
+# Logs and temporary files
+*.log
+*.tmp
+*~
+.flaskenv
+instance/
+.pytest_cache/
+.coverage
+htmlcov/
+.nox/
+.mypy_cache/
+.ruff_cache/

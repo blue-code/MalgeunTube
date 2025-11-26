@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block title %}피드 - MalgeunTube{% endblock %}
+
+{% block content %}
+<div class="feed-container">
+    <div class="feed-header">
+        <h2>📺 구독 피드</h2>
+        <p>즐겨찾기 채널의 최신 영상</p>
+    </div>
+    
+    {% if channels %}
+    <div class="channel-chips">
+        {% for channel in channels %}
+        <a href="{{ url_for('channel_detail', channel_id=channel.channel_id) }}" class="channel-chip">
+            <div class="channel-avatar">{{ channel.name[0] if channel.name else '?' }}</div>
+            <span>{{ channel.name }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    
+    {% if videos %}
+    <div class="video-grid">
+        {% for video in videos %}
+        <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
+            <div class="thumbnail">
+                <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                {% if video.duration %}
+                <span class="duration">{{ video.duration|duration }}</span>
+                {% endif %}
+            </div>
+            <div class="video-info">
+                <h4>{{ video.title }}</h4>
+                <p>{{ video.channel }}</p>
+                {% if video.view_count %}
+                <p class="views">{{ video.view_count|views }}회</p>
+                {% endif %}
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📺</div>
+        <h3>피드가 비어있습니다</h3>
+        <p>채널을 즐겨찾기에 추가하면 여기에 최신 영상이 표시됩니다</p>
+        <a href="{{ url_for('index') }}" class="btn">홈으로</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.feed-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.feed-header {
+    margin-bottom: 1.5rem;
+}
+
+.feed-header h2 {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.feed-header p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.feed-container .channel-chips {
+    margin-bottom: 1.5rem;
+}
+</style>
+{% endblock %}

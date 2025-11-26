@@ -1,0 +1,165 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ channel.channel if channel else '채널' }} - MalgeunTube{% endblock %}
+
+{% block content %}
+<div class="channel-detail-container">
+    {% if channel %}
+    <div class="channel-banner">
+        <div class="channel-profile">
+            <div class="channel-avatar-large">{{ channel.channel[0] if channel.channel else '?' }}</div>
+            <div class="channel-info">
+                <h1>{{ channel.channel }}</h1>
+            </div>
+            <button id="subscribe-btn" class="btn btn-subscribe {% if channel.is_subscribed %}subscribed{% endif %}"
+                    data-channel-id="{{ channel.channel_id }}"
+                    data-channel-name="{{ channel.channel }}"
+                    data-channel-url="https://www.youtube.com/channel/{{ channel.channel_id }}">
+                {% if channel.is_subscribed %}✓ 구독중{% else %}⭐ 즐겨찾기{% endif %}
+            </button>
+        </div>
+    </div>
+    
+    <div class="channel-videos-section">
+        <h2>📺 최신 영상</h2>
+        {% if channel.videos %}
+        <div class="video-grid">
+            {% for video in channel.videos %}
+            <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
+                <div class="thumbnail">
+                    <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                    {% if video.duration %}
+                    <span class="duration">{{ video.duration|duration }}</span>
+                    {% endif %}
+                </div>
+                <div class="video-info">
+                    <h4>{{ video.title }}</h4>
+                    {% if video.view_count %}
+                    <p>{{ video.view_count|views }}회</p>
+                    {% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="no-videos">영상을 불러올 수 없습니다</p>
+        {% endif %}
+    </div>
+    
+    {% elif error %}
+    <div class="error-message">
+        <h2>⚠️ 채널을 불러올 수 없습니다</h2>
+        <p>{{ error }}</p>
+        <a href="{{ url_for('index') }}" class="btn">홈으로</a>
+    </div>
+    {% else %}
+    <div class="error-message">
+        <h2>⚠️ 채널을 찾을 수 없습니다</h2>
+        <a href="{{ url_for('index') }}" class="btn">홈으로</a>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.channel-detail-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.channel-banner {
+    background-color: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.channel-profile {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.channel-avatar-large {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background-color: var(--accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+.channel-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.channel-info h1 {
+    font-size: 1.5rem;
+    line-height: 1.3;
+}
+
+.channel-videos-section h2 {
+    font-size: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.no-videos {
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 2rem;
+}
+
+@media (max-width: 768px) {
+    .channel-profile {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .channel-avatar-large {
+        width: 64px;
+        height: 64px;
+        font-size: 1.5rem;
+    }
+    
+    .channel-info h1 {
+        font-size: 1.25rem;
+    }
+    
+    #subscribe-btn {
+        width: 100%;
+    }
+}
+</style>
+
+<script>
+document.getElementById('subscribe-btn')?.addEventListener('click', async function() {
+    const channelId = this.dataset.channelId;
+    const channelName = this.dataset.channelName;
+    const channelUrl = this.dataset.channelUrl;
+    const isSubscribed = this.classList.contains('subscribed');
+    
+    const endpoint = isSubscribed ? '/api/channel/unsubscribe' : '/api/channel/subscribe';
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            channel_id: channelId,
+            name: channelName,
+            channel_url: channelUrl
+        })
+    });
+    
+    if (response.ok) {
+        this.classList.toggle('subscribed');
+        this.textContent = isSubscribed ? '⭐ 즐겨찾기' : '✓ 구독중';
+        showToast(isSubscribed ? '즐겨찾기 해제' : '즐겨찾기 추가');
+    }
+});
+</script>
+{% endblock %}

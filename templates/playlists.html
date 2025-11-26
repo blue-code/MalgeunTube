@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+
+{% block title %}내 플레이리스트 - MalgeunTube{% endblock %}
+
+{% block content %}
+<div class="playlists-container">
+    <div class="playlists-header">
+        <h2>📁 내 플레이리스트</h2>
+        <button class="btn" onclick="openCreateModal()">+ 새 플레이리스트</button>
+    </div>
+    
+    {% if playlists %}
+    <div class="playlist-grid">
+        {% for pl in playlists %}
+        <a href="{{ url_for('playlist_view', playlist_id=pl.id) }}" class="playlist-card">
+            <div class="playlist-cover">
+                {% if pl.videos|length > 0 %}
+                    {% for video in pl.videos[:4] %}
+                    <img src="{{ video.thumbnail }}" alt="" loading="lazy">
+                    {% endfor %}
+                    {% for i in range(4 - pl.videos|length) %}
+                    <div class="empty-thumb"></div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-thumb"></div>
+                    <div class="empty-thumb"></div>
+                    <div class="empty-thumb"></div>
+                    <div class="empty-thumb"></div>
+                {% endif %}
+            </div>
+            <div class="playlist-card-info">
+                <h4>{{ pl.name }}</h4>
+                <p>{{ pl.videos|length }}개 영상</p>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📁</div>
+        <h3>플레이리스트가 없습니다</h3>
+        <p>새 플레이리스트를 만들어보세요</p>
+        <button class="btn" onclick="openCreateModal()">+ 새 플레이리스트</button>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 생성 모달 -->
+<div id="create-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>새 플레이리스트</h3>
+            <button class="modal-close" onclick="closeCreateModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <input type="text" id="playlist-name-input" placeholder="플레이리스트 이름" style="width:100%; padding:0.75rem; border:1px solid var(--border); border-radius:8px; background:var(--bg-tertiary); color:var(--text-primary); font-size:1rem; margin-bottom:1rem;">
+            <button class="btn" onclick="createPlaylist()" style="width:100%;">생성</button>
+        </div>
+    </div>
+</div>
+
+<style>
+.playlists-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.playlists-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.playlists-header h2 {
+    font-size: 1.25rem;
+}
+
+.playlist-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+}
+
+.playlist-card {
+    background-color: var(--bg-secondary);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.2s;
+}
+
+.playlist-card:hover {
+    transform: translateY(-4px);
+}
+
+.playlist-cover {
+    aspect-ratio: 16/9;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 2px;
+    background-color: var(--bg-tertiary);
+}
+
+.playlist-cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.empty-thumb {
+    background-color: var(--bg-tertiary);
+}
+
+.playlist-card-info {
+    padding: 0.75rem;
+}
+
+.playlist-card-info h4 {
+    font-size: 0.9375rem;
+    margin-bottom: 0.25rem;
+}
+
+.playlist-card-info p {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 480px) {
+    .playlist-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+
+<script>
+function openCreateModal() {
+    document.getElementById('create-modal').classList.add('show');
+    document.getElementById('playlist-name-input').focus();
+}
+
+function closeCreateModal() {
+    document.getElementById('create-modal').classList.remove('show');
+}
+
+async function createPlaylist() {
+    const name = document.getElementById('playlist-name-input').value.trim();
+    if (!name) {
+        showToast('이름을 입력하세요');
+        return;
+    }
+    
+    const response = await fetch('/api/playlist/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name })
+    });
+    
+    if (response.ok) {
+        location.reload();
+    }
+}
+
+document.getElementById('create-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeCreateModal();
+});
+
+document.getElementById('playlist-name-input').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') createPlaylist();
+});
+</script>
+{% endblock %}
