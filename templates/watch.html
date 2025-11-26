@@ -173,17 +173,84 @@
     </div>
 </div>
 
+<div id="download-modal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>다운로드</h3>
+            <button class="modal-close" onclick="closeDownloadModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="tabs">
+                <button class="tab-btn active" onclick="switchTab('video')">비디오</button>
+                <button class="tab-btn" onclick="switchTab('audio')">오디오 (MP3)</button>
+            </div>
+            
+            <div id="video-tab" class="tab-content active">
+                <div class="control-group" style="margin-bottom: 1rem;">
+                    <label>해상도 선택</label>
+                    <select id="dl-video-quality" style="width: 100%; padding: 0.5rem; margin-top: 0.5rem;">
+                        <option value="best">최고 화질 (Best)</option>
+                        <option value="1080">1080p</option>
+                        <option value="720">720p</option>
+                        <option value="480">480p</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="requestDownload('video')" style="width: 100%;">비디오 다운로드</button>
+            </div>
+            
+            <div id="audio-tab" class="tab-content">
+                <div class="control-group" style="margin-bottom: 1rem;">
+                    <label>음질 선택</label>
+                    <select id="dl-audio-quality" style="width: 100%; padding: 0.5rem; margin-top: 0.5rem;">
+                        <option value="320">고음질 (320kbps)</option>
+                        <option value="192" selected>일반 (192kbps)</option>
+                        <option value="128">저용량 (128kbps)</option>
+                    </select>
+                </div>
+                <button class="btn" onclick="requestDownload('audio')" style="width: 100%;">오디오 다운로드</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1rem;
+}
+.tab-btn {
+    flex: 1;
+    padding: 0.75rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+.tab-btn.active {
+    color: var(--text-primary);
+    border-bottom-color: var(--accent);
+}
+.tab-content {
+    display: none;
+}
+.tab-content.active {
+    display: block;
+}
+</style>
+
 <script>
 var videoData = {
-    id: '{{ video.id }}',
-    title: '{{ video.title|e }}',
-    thumbnail: '{{ video.thumbnail }}',
-    duration: {{ video.duration or 0 }},
-    channel: '{{ video.channel|e }}'
+    id: {{ video.id|tojson|safe }},
+    title: {{ video.title|tojson|safe }},
+    thumbnail: {{ video.thumbnail|tojson|safe }},
+    duration: {{ (video.duration or 0)|tojson|safe }},
+    channel: {{ video.channel|tojson|safe }}
 };
 
 var playlistData = {{ playlist|tojson|safe if playlist else 'null' }};
-var playlistIndex = {{ playlist_index }};
+var playlistIndex = {{ playlist_index|tojson|safe }};
 
 document.addEventListener('DOMContentLoaded', function() {
     var player = document.getElementById('video-player');
@@ -394,74 +461,7 @@ if (modal) {
         if (e.target === this) closePlaylistModal();
     });
 }
-<div id="download-modal" class="modal">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3>다운로드</h3>
-            <button class="modal-close" onclick="closeDownloadModal()">×</button>
-        </div>
-        <div class="modal-body">
-            <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('video')">비디오</button>
-                <button class="tab-btn" onclick="switchTab('audio')">오디오 (MP3)</button>
-            </div>
-            
-            <div id="video-tab" class="tab-content active">
-                <div class="control-group" style="margin-bottom: 1rem;">
-                    <label>해상도 선택</label>
-                    <select id="dl-video-quality" style="width: 100%; padding: 0.5rem; margin-top: 0.5rem;">
-                        <option value="best">최고 화질 (Best)</option>
-                        <option value="1080">1080p</option>
-                        <option value="720">720p</option>
-                        <option value="480">480p</option>
-                    </select>
-                </div>
-                <button class="btn" onclick="requestDownload('video')" style="width: 100%;">비디오 다운로드</button>
-            </div>
-            
-            <div id="audio-tab" class="tab-content">
-                <div class="control-group" style="margin-bottom: 1rem;">
-                    <label>음질 선택</label>
-                    <select id="dl-audio-quality" style="width: 100%; padding: 0.5rem; margin-top: 0.5rem;">
-                        <option value="320">고음질 (320kbps)</option>
-                        <option value="192" selected>일반 (192kbps)</option>
-                        <option value="128">저용량 (128kbps)</option>
-                    </select>
-                </div>
-                <button class="btn" onclick="requestDownload('audio')" style="width: 100%;">오디오 다운로드</button>
-            </div>
-        </div>
-    </div>
-</div>
 
-<style>
-.tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 1rem;
-}
-.tab-btn {
-    flex: 1;
-    padding: 0.75rem;
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    border-bottom: 2px solid transparent;
-}
-.tab-btn.active {
-    color: var(--text-primary);
-    border-bottom-color: var(--accent);
-}
-.tab-content {
-    display: none;
-}
-.tab-content.active {
-    display: block;
-}
-</style>
-
-<script>
 function openDownloadModal() {
     document.getElementById('download-modal').classList.add('show');
 }
