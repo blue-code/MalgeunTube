@@ -15,10 +15,14 @@ app.secret_key = 'adfree-tube-secret-key-2024'
 
 # 데이터 디렉토리 설정
 DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
+DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), 'downloads')
 HISTORY_FILE = os.path.join(DATA_DIR, 'history.json') # Default/Legacy
 CHANNELS_FILE = os.path.join(DATA_DIR, 'channels.json') # Default/Legacy
 PLAYLISTS_FILE = os.path.join(DATA_DIR, 'playlists.json') # Default/Legacy
 PROFILES_FILE = os.path.join(DATA_DIR, 'profiles.json')
+
+# 다운로드 진행률 추적
+download_progress = {}  # {download_id: {'status': 'downloading', 'progress': 45.2, 'filename': '...', 'error': None}}
 DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), 'downloads')
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'avatars')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
@@ -57,24 +61,50 @@ def load_json(filepath):
 
 # (Remove download_task and replace api_download and add serve_download)
 
-@app.route('/api/download', methods=['POST'])
-def api_download():
-    data = request.get_json()
-    video_id = data.get('video_id')
-    download_type = data.get('type', 'video')
-    quality = data.get('quality', 'best')
-    
-    if not video_id:
-        return jsonify({'success': False, 'message': 'Video ID is required'})
-    
-    video_url = f"https://www.youtube.com/watch?v={video_id}"
-    file_id = str(uuid.uuid4())
-    
+def progress_hook(d, download_id):
+    """yt-dlp 다운로드 진행률 콜백"""
+    if d['status'] == 'downloading':
+        try:
+            downloaded = d.get('downloaded_bytes', 0)
+            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+
+            if total > 0:
+                progress = (downloaded / total) * 100
+                download_progress[download_id]['progress'] = round(progress, 1)
+                download_progress[download_id]['status'] = 'downloading'
+
+                # 속도와 ETA 정보도 저장
+                speed = d.get('speed', 0)
+                eta = d.get('eta', 0)
+                if speed:
+                    download_progress[download_id]['speed'] = f"{speed / 1024 / 1024:.1f} MB/s"
+                if eta:
+                    download_progress[download_id]['eta'] = f"{eta}초"
+        except:
+            pass
+    elif d['status'] == 'finished':
+        download_progress[download_id]['status'] = 'processing'
+        download_progress[download_id]['progress'] = 100
+
+def download_video_task(video_id, download_type, quality, download_id):
+    """백그라운드에서 실행되는 다운로드 작업"""
     try:
+        download_progress[download_id] = {
+            'status': 'starting',
+            'progress': 0,
+            'filename': None,
+            'error': None,
+            'title': None
+        }
+
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        file_id = str(uuid.uuid4())
+
         ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'outtmpl': os.path.join(DOWNLOAD_DIR, f'{file_id}.%(ext)s'),
+            'progress_hooks': [lambda d: progress_hook(d, download_id)],
         }
         
         if download_type == 'audio':
@@ -100,22 +130,71 @@ def api_download():
             info = ydl.extract_info(video_url, download=True)
             
             # Find the downloaded file
-            # yt-dlp might change extension (e.g. mkv -> mp4 or webm -> mp3)
-            # We look for files starting with the file_id
             files = glob.glob(os.path.join(DOWNLOAD_DIR, f'{file_id}.*'))
             if not files:
-                return jsonify({'success': False, 'message': 'Download failed: File not found'})
-            
+                download_progress[download_id]['status'] = 'error'
+                download_progress[download_id]['error'] = 'Download failed: File not found'
+                return
+
             filename = os.path.basename(files[0])
             title = info.get('title', 'video')
             
-            return jsonify({
-                'success': True, 
-                'download_url': url_for('serve_download', filename=filename, title=title)
-            })
-            
+            download_progress[download_id]['status'] = 'completed'
+            download_progress[download_id]['progress'] = 100
+            download_progress[download_id]['filename'] = filename
+            download_progress[download_id]['title'] = title
+
     except Exception as e:
-        return jsonify({'success': False, 'message': str(e)})
+        download_progress[download_id]['status'] = 'error'
+        download_progress[download_id]['error'] = str(e)
+
+@app.route('/api/download', methods=['POST'])
+def api_download():
+    data = request.get_json()
+    video_id = data.get('video_id')
+    download_type = data.get('type', 'video')
+    quality = data.get('quality', 'best')
+
+    if not video_id:
+        return jsonify({'success': False, 'message': 'Video ID is required'})
+
+    # 다운로드 ID 생성
+    download_id = str(uuid.uuid4())
+
+    # 백그라운드 스레드에서 다운로드 시작
+    thread = threading.Thread(
+        target=download_video_task,
+        args=(video_id, download_type, quality, download_id)
+    )
+    thread.daemon = True
+    thread.start()
+
+    return jsonify({
+        'success': True,
+        'download_id': download_id,
+        'message': '다운로드가 시작되었습니다'
+    })
+
+@app.route('/api/download/progress/<download_id>')
+def api_download_progress(download_id):
+    """다운로드 진행률 조회"""
+    if download_id not in download_progress:
+        return jsonify({'success': False, 'message': 'Download not found'})
+
+    progress_data = download_progress[download_id]
+
+    # 완료된 다운로드는 URL 포함
+    if progress_data['status'] == 'completed':
+        progress_data['download_url'] = url_for(
+            'serve_download',
+            filename=progress_data['filename'],
+            title=progress_data['title']
+        )
+
+    return jsonify({
+        'success': True,
+        **progress_data
+    })
 
 @app.route('/download/<filename>')
 def serve_download(filename):
