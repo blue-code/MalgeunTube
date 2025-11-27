@@ -7,7 +7,7 @@ import random
 import threading
 import uuid
 import glob
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 
 app = Flask(__name__)
@@ -424,6 +424,89 @@ def delete_playlist(playlist_id):
     playlists = [pl for pl in playlists if pl['id'] != playlist_id]
     save_playlists(playlists)
 
+# ============== 나중에 볼 영상 관리 ==============
+
+def load_watch_later():
+    watch_later_file = os.path.join(DATA_DIR, f'watch_later_{session.get("profile_id", "default")}.json')
+    return load_json(watch_later_file)
+
+def save_watch_later(videos):
+    watch_later_file = os.path.join(DATA_DIR, f'watch_later_{session.get("profile_id", "default")}.json')
+    save_json(watch_later_file, videos)
+
+def add_to_watch_later(video_info):
+    videos = load_watch_later()
+    # 중복 체크
+    if not any(v.get('id') == video_info.get('id') for v in videos):
+        video_info['added_at'] = datetime.now().isoformat()
+        videos.insert(0, video_info)  # 맨 앞에 추가
+        save_watch_later(videos)
+        return True
+    return False
+
+def remove_from_watch_later(video_id):
+    videos = load_watch_later()
+    videos = [v for v in videos if v.get('id') != video_id]
+    save_watch_later(videos)
+    return True
+
+def is_in_watch_later(video_id):
+    videos = load_watch_later()
+    return any(v.get('id') == video_id for v in videos)
+
+# ============== 시청 진행률 관리 ==============
+
+def load_watch_progress():
+    progress_file = os.path.join(DATA_DIR, f'progress_{session.get("profile_id", "default")}.json')
+    return load_json(progress_file)
+
+def save_watch_progress(progress_data):
+    progress_file = os.path.join(DATA_DIR, f'progress_{session.get("profile_id", "default")}.json')
+    save_json(progress_file, progress_data)
+
+def update_progress(video_id, current_time, duration):
+    progress_data = load_watch_progress()
+
+    # 진행률 계산 (5% 미만이면 저장 안 함, 95% 이상이면 완료로 표시)
+    if duration > 0:
+        percentage = (current_time / duration) * 100
+
+        if percentage < 5:
+            # 너무 초반이면 저장 안 함
+            return
+        elif percentage >= 95:
+            # 거의 끝까지 봤으면 완료로 표시하고 제거
+            progress_data = [p for p in progress_data if p.get('video_id') != video_id]
+        else:
+            # 기존 데이터 찾기
+            found = False
+            for p in progress_data:
+                if p.get('video_id') == video_id:
+                    p['current_time'] = current_time
+                    p['duration'] = duration
+                    p['percentage'] = round(percentage, 2)
+                    p['updated_at'] = datetime.now().isoformat()
+                    found = True
+                    break
+
+            if not found:
+                progress_data.append({
+                    'video_id': video_id,
+                    'current_time': current_time,
+                    'duration': duration,
+                    'percentage': round(percentage, 2),
+                    'updated_at': datetime.now().isoformat()
+                })
+
+    save_watch_progress(progress_data)
+
+def get_progress(video_id):
+    progress_data = load_watch_progress()
+    for p in progress_data:
+        if p.get('video_id') == video_id:
+            return p
+    return None
+
 # ============== YouTube 데이터 함수 ==============
 
 def get_video_info(video_url):
@@ -733,6 +816,15 @@ def history():
     history_data = load_history()
     return render_template('history.html', history=history_data)
 
+@app.route('/watch-later')
+def watch_later_page():
+    videos = load_watch_later()
+    return render_template('watch_later.html', videos=videos)
+
+@app.route('/stats')
+def stats_page():
+    return render_template('stats.html')
+
 @app.route('/playlist/<playlist_id>')
 def playlist_view(playlist_id):
     if playlist_id.startswith('pl_'):
@@ -867,6 +959,124 @@ def api_remove_from_playlist(playlist_id):
 def api_delete_playlist(playlist_id):
     delete_playlist(playlist_id)
     return jsonify({'success': True})
+
+# ============== 나중에 볼 영상 API ==============
+
+@app.route('/api/watch-later/add', methods=['POST'])
+def api_add_watch_later():
+    try:
+        data = request.get_json()
+        video_info = {
+            'id': data.get('video_id'),
+            'title': data.get('title'),
+            'thumbnail': data.get('thumbnail'),
+            'duration': data.get('duration'),
+            'channel': data.get('channel'),
+            'channel_id': data.get('channel_id')
+        }
+
+        success = add_to_watch_later(video_info)
+        if success:
+            return jsonify({'success': True, 'message': '나중에 볼 영상에 추가되었습니다'})
+        else:
+            return jsonify({'success': False, 'message': '이미 추가된 영상입니다'})
+    except Exception as e:
+        print(f"Error adding to watch later: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/watch-later/remove', methods=['POST'])
+def api_remove_watch_later():
+    try:
+        data = request.get_json()
+        video_id = data.get('video_id')
+        remove_from_watch_later(video_id)
+        return jsonify({'success': True, 'message': '나중에 볼 영상에서 제거되었습니다'})
+    except Exception as e:
+        print(f"Error removing from watch later: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/watch-later/check/<video_id>', methods=['GET'])
+def api_check_watch_later(video_id):
+    is_added = is_in_watch_later(video_id)
+    return jsonify({'is_added': is_added})
+
+# ============== 시청 진행률 API ==============
+
+@app.route('/api/progress/update', methods=['POST'])
+def api_update_progress():
+    try:
+        data = request.get_json()
+        video_id = data.get('video_id')
+        current_time = data.get('current_time', 0)
+        duration = data.get('duration', 0)
+
+        update_progress(video_id, current_time, duration)
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error updating progress: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/progress/<video_id>', methods=['GET'])
+def api_get_progress(video_id):
+    progress = get_progress(video_id)
+    return jsonify({'progress': progress})
+
+# ============== 시청 통계 API ==============
+
+@app.route('/api/stats', methods=['GET'])
+def api_get_stats():
+    try:
+        history = load_history()
+        channels = load_channels()
+
+        # 오늘, 이번 주, 이번 달 시청 시간 계산
+        now = datetime.now()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = today_start - timedelta(days=today_start.weekday())
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        today_time = 0
+        week_time = 0
+        month_time = 0
+
+        channel_counts = {}
+
+        for video in history:
+            watched_at = video.get('watched_at')
+            if watched_at:
+                try:
+                    watched_date = datetime.fromisoformat(watched_at)
+                    duration = video.get('duration', 0)
+
+                    if watched_date >= today_start:
+                        today_time += duration
+                    if watched_date >= week_start:
+                        week_time += duration
+                    if watched_date >= month_start:
+                        month_time += duration
+
+                    # 채널별 시청 횟수
+                    channel = video.get('channel', 'Unknown')
+                    channel_counts[channel] = channel_counts.get(channel, 0) + 1
+                except:
+                    pass
+
+        # Top 5 채널
+        top_channels = sorted(channel_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        stats = {
+            'today_minutes': round(today_time / 60, 1),
+            'week_minutes': round(week_time / 60, 1),
+            'month_minutes': round(month_time / 60, 1),
+            'total_videos': len(history),
+            'total_channels': len(channels),
+            'top_channels': [{'name': ch, 'count': cnt} for ch, cnt in top_channels]
+        }
+
+        return jsonify({'success': True, 'stats': stats})
+    except Exception as e:
+        print(f"Error getting stats: {e}")
+        return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/channel/<channel_id>/videos', methods=['GET'])
 def api_get_channel_videos(channel_id):

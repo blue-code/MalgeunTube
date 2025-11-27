@@ -71,6 +71,11 @@
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                     <span>저장</span>
                 </button>
+
+                <button id="watch-later-btn" class="btn btn-icon" title="나중에 보기">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"/></svg>
+                    <span id="watch-later-text">나중에</span>
+                </button>
             </div>
             
             <div class="video-details">
@@ -552,5 +557,125 @@ function requestDownload(type) {
 document.getElementById('download-modal').addEventListener('click', function(e) {
     if (e.target === this) closeDownloadModal();
 });
+
+// ============== 나중에 보기 기능 ==============
+const watchLaterBtn = document.getElementById('watch-later-btn');
+const watchLaterText = document.getElementById('watch-later-text');
+
+// 현재 상태 확인
+fetch(`/api/watch-later/check/${videoData.id}`)
+    .then(res => res.json())
+    .then(data => {
+        if (data.is_added) {
+            watchLaterBtn.classList.add('added');
+            watchLaterText.textContent = '추가됨';
+        }
+    });
+
+watchLaterBtn?.addEventListener('click', async function() {
+    const isAdded = this.classList.contains('added');
+
+    try {
+        const endpoint = isAdded ? '/api/watch-later/remove' : '/api/watch-later/add';
+        const requestData = {
+            video_id: videoData.id,
+            title: videoData.title,
+            thumbnail: videoData.thumbnail,
+            duration: videoData.duration,
+            channel: videoData.channel,
+            channel_id: {{ video.channel_id|tojson|safe }}
+        };
+
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            this.classList.toggle('added');
+            watchLaterText.textContent = isAdded ? '나중에' : '추가됨';
+            showToast(data.message);
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showToast('오류가 발생했습니다');
+    }
+});
+
+// ============== 시청 진행률 저장 ==============
+const player = document.getElementById('video-player');
+let progressSaveInterval;
+
+// 진행률 로드 및 이어보기
+fetch(`/api/progress/${videoData.id}`)
+    .then(res => res.json())
+    .then(data => {
+        if (data.progress && data.progress.current_time > 10) {
+            const progress = data.progress;
+            const percentage = Math.round(progress.percentage);
+
+            // 이어보기 확인
+            if (confirm(`${percentage}% 시청한 영상입니다. 이어서 보시겠습니까?`)) {
+                player.currentTime = progress.current_time;
+            }
+        }
+    });
+
+// 5초마다 진행률 저장
+if (player) {
+    player.addEventListener('play', function() {
+        progressSaveInterval = setInterval(function() {
+            if (!player.paused && player.currentTime > 0 && player.duration > 0) {
+                fetch('/api/progress/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        video_id: videoData.id,
+                        current_time: player.currentTime,
+                        duration: player.duration
+                    })
+                });
+            }
+        }, 5000); // 5초마다
+    });
+
+    player.addEventListener('pause', function() {
+        if (progressSaveInterval) {
+            clearInterval(progressSaveInterval);
+        }
+        // 일시정지 시에도 저장
+        if (player.currentTime > 0 && player.duration > 0) {
+            fetch('/api/progress/update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    video_id: videoData.id,
+                    current_time: player.currentTime,
+                    duration: player.duration
+                })
+            });
+        }
+    });
+
+    // 페이지 종료 시에도 저장
+    window.addEventListener('beforeunload', function() {
+        if (player.currentTime > 0 && player.duration > 0) {
+            navigator.sendBeacon('/api/progress/update', JSON.stringify({
+                video_id: videoData.id,
+                current_time: player.currentTime,
+                duration: player.duration
+            }));
+        }
+    });
+}
 </script>
+
+<style>
+#watch-later-btn.added {
+    background-color: var(--accent);
+    color: white;
+}
+</style>
 {% endblock %}
