@@ -18,10 +18,26 @@
         </a>
         {% endfor %}
     </div>
+
+    <div class="feed-view-toggle" style="margin-bottom: 1rem;">
+        <button id="grid-view-btn" class="view-btn active">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M4 11h5V5H4v6zm0 7h5v-6H4v6zm6 0h5v-6h-5v6zm6 0h5v-6h-5v6zm-6-7h5V5h-5v6zm6-6v6h5V5h-5z"/>
+            </svg>
+            통합 보기
+        </button>
+        <button id="channel-view-btn" class="view-btn">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/>
+            </svg>
+            채널별 보기
+        </button>
+    </div>
     {% endif %}
     
     {% if videos %}
-    <div class="video-grid">
+    <!-- 통합 보기 (기본) -->
+    <div id="grid-view" class="video-grid">
         {% for video in videos %}
         <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
             <div class="thumbnail">
@@ -38,6 +54,26 @@
                 {% endif %}
             </div>
         </a>
+        {% endfor %}
+    </div>
+
+    <!-- 채널별 보기 -->
+    <div id="channel-view" style="display: none;">
+        {% for channel in channels %}
+        <div class="channel-section" data-channel-id="{{ channel.channel_id }}">
+            <div class="channel-section-header">
+                <a href="{{ url_for('channel_detail', channel_id=channel.channel_id) }}" class="channel-link">
+                    <div class="channel-avatar">{{ channel.name[0] if channel.name else '?' }}</div>
+                    <h3>{{ channel.name }}</h3>
+                </a>
+                <button class="btn-small load-channel-btn" data-channel-id="{{ channel.channel_id }}">
+                    더보기
+                </button>
+            </div>
+            <div class="channel-videos video-grid" data-channel-id="{{ channel.channel_id }}">
+                <!-- 여기에 채널 영상이 로드됩니다 -->
+            </div>
+        </div>
         {% endfor %}
     </div>
     {% else %}
@@ -73,5 +109,216 @@
 .feed-container .channel-chips {
     margin-bottom: 1.5rem;
 }
+
+.feed-view-toggle {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+}
+
+.view-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background-color: var(--bg-secondary);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.view-btn:hover {
+    background-color: var(--bg-tertiary);
+}
+
+.view-btn.active {
+    background-color: var(--accent);
+    color: white;
+    border-color: var(--accent);
+}
+
+.channel-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.channel-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.channel-section-header .channel-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+    color: var(--text-primary);
+}
+
+.channel-section-header .channel-avatar {
+    width: 48px;
+    height: 48px;
+    font-size: 1.2rem;
+}
+
+.channel-section-header h3 {
+    font-size: 1.1rem;
+    margin: 0;
+}
+
+.btn-small {
+    padding: 0.5rem 1rem;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.btn-small:hover {
+    background-color: var(--bg-tertiary);
+}
+
+@media (max-width: 768px) {
+    .feed-view-toggle {
+        flex-direction: column;
+    }
+
+    .view-btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
 </style>
+
+<script>
+const gridViewBtn = document.getElementById('grid-view-btn');
+const channelViewBtn = document.getElementById('channel-view-btn');
+const gridView = document.getElementById('grid-view');
+const channelView = document.getElementById('channel-view');
+
+// 뷰 전환
+gridViewBtn?.addEventListener('click', function() {
+    gridViewBtn.classList.add('active');
+    channelViewBtn.classList.remove('active');
+    gridView.style.display = 'grid';
+    channelView.style.display = 'none';
+});
+
+channelViewBtn?.addEventListener('click', function() {
+    channelViewBtn.classList.add('active');
+    gridViewBtn.classList.remove('active');
+    gridView.style.display = 'none';
+    channelView.style.display = 'block';
+
+    // 채널별 보기로 전환 시 첫 번째 채널 영상 로드
+    loadAllChannelVideos();
+});
+
+// 채널 영상 로드 추적
+const loadedChannels = new Set();
+
+async function loadAllChannelVideos() {
+    const channelSections = document.querySelectorAll('.channel-section');
+
+    for (const section of channelSections) {
+        const channelId = section.dataset.channelId;
+        if (!loadedChannels.has(channelId)) {
+            await loadChannelVideos(channelId, 0, 10);
+            loadedChannels.add(channelId);
+        }
+    }
+}
+
+async function loadChannelVideos(channelId, offset = 0, limit = 10) {
+    const videoContainer = document.querySelector(`.channel-videos[data-channel-id="${channelId}"]`);
+    if (!videoContainer) return;
+
+    try {
+        const response = await fetch(`/api/channel/${channelId}/videos?offset=${offset}&limit=${limit}`);
+        const data = await response.json();
+
+        if (data.success && data.videos && data.videos.length > 0) {
+            data.videos.forEach(video => {
+                const videoCard = createVideoCard(video);
+                videoContainer.insertAdjacentHTML('beforeend', videoCard);
+            });
+        } else {
+            if (offset === 0) {
+                videoContainer.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-secondary);">영상을 불러올 수 없습니다</p>';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading channel videos:', error);
+        if (offset === 0) {
+            videoContainer.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--text-secondary);">오류가 발생했습니다</p>';
+        }
+    }
+}
+
+// 더보기 버튼
+document.querySelectorAll('.load-channel-btn').forEach(btn => {
+    btn.addEventListener('click', async function() {
+        const channelId = this.dataset.channelId;
+        const videoContainer = document.querySelector(`.channel-videos[data-channel-id="${channelId}"]`);
+        const currentCount = videoContainer.querySelectorAll('.video-card').length;
+
+        this.disabled = true;
+        this.textContent = '로딩...';
+
+        await loadChannelVideos(channelId, currentCount, 10);
+
+        this.disabled = false;
+        this.textContent = '더보기';
+    });
+});
+
+function createVideoCard(video) {
+    const duration = video.duration ? formatDuration(video.duration) : '';
+    const viewCount = video.view_count ? formatViews(video.view_count) : '';
+
+    return `
+        <a href="/watch?v=${video.id}" class="video-card">
+            <div class="thumbnail">
+                <img src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                ${duration ? `<span class="duration">${duration}</span>` : ''}
+            </div>
+            <div class="video-info">
+                <h4>${escapeHtml(video.title)}</h4>
+                ${viewCount ? `<p>${viewCount}회</p>` : ''}
+            </div>
+        </a>
+    `;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatViews(count) {
+    if (!count) return '0';
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
+    return count.toString();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
 {% endblock %}

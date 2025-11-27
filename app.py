@@ -510,7 +510,7 @@ def get_playlist_info(playlist_url):
     except Exception as e:
         return {'error': str(e)}
 
-def get_channel_videos(channel_url, max_videos=50):
+def get_channel_videos(channel_url, max_videos=100):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -867,6 +867,35 @@ def api_remove_from_playlist(playlist_id):
 def api_delete_playlist(playlist_id):
     delete_playlist(playlist_id)
     return jsonify({'success': True})
+
+@app.route('/api/channel/<channel_id>/videos', methods=['GET'])
+def api_get_channel_videos(channel_id):
+    """채널의 더 많은 영상을 가져오는 API"""
+    try:
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 20, type=int)
+
+        channel_url = f"https://www.youtube.com/channel/{channel_id}"
+
+        # 더 많은 영상 로드 (최대 100개)
+        channel_info = get_channel_videos(channel_url, max_videos=min(offset + limit, 100))
+
+        if 'error' in channel_info:
+            return jsonify({'success': False, 'error': channel_info['error']})
+
+        # offset부터 limit개만큼 잘라서 반환
+        videos = channel_info.get('videos', [])[offset:offset + limit]
+        has_more = len(channel_info.get('videos', [])) > offset + limit
+
+        return jsonify({
+            'success': True,
+            'videos': videos,
+            'has_more': has_more,
+            'total': len(channel_info.get('videos', []))
+        })
+    except Exception as e:
+        print(f"Error loading more videos: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 # ============== 템플릿 필터 ==============
 

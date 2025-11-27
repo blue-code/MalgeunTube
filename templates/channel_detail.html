@@ -21,9 +21,9 @@
     </div>
     
     <div class="channel-videos-section">
-        <h2>📺 최신 영상</h2>
+        <h2>📺 영상 <span id="video-count">({{ channel.videos|length }}개)</span></h2>
         {% if channel.videos %}
-        <div class="video-grid">
+        <div class="video-grid" id="video-grid">
             {% for video in channel.videos %}
             <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
                 <div class="thumbnail">
@@ -40,6 +40,16 @@
                 </div>
             </a>
             {% endfor %}
+        </div>
+
+        <div id="load-more-container" style="text-align: center; margin-top: 2rem;">
+            <button id="load-more-btn" class="btn" style="display: none;">
+                더 많은 영상 보기
+            </button>
+            <div id="loading-spinner" style="display: none; padding: 2rem;">
+                <div class="spinner"></div>
+                <p>영상을 불러오는 중...</p>
+            </div>
         </div>
         {% else %}
         <p class="no-videos">영상을 불러올 수 없습니다</p>
@@ -161,5 +171,125 @@ document.getElementById('subscribe-btn')?.addEventListener('click', async functi
         showToast(isSubscribed ? '즐겨찾기 해제' : '즐겨찾기 추가');
     }
 });
+
+// 더보기 기능
+{% if channel and channel.videos %}
+const channelId = '{{ channel.channel_id }}';
+let currentOffset = {{ channel.videos|length }};
+let isLoading = false;
+let hasMore = {{ channel.videos|length }} >= 50; // 50개 이상이면 더 있을 가능성
+
+const loadMoreBtn = document.getElementById('load-more-btn');
+const loadingSpinner = document.getElementById('loading-spinner');
+const videoGrid = document.getElementById('video-grid');
+const videoCount = document.getElementById('video-count');
+
+// 더보기 버튼 표시
+if (hasMore) {
+    loadMoreBtn.style.display = 'inline-block';
+}
+
+// 더보기 버튼 클릭
+loadMoreBtn?.addEventListener('click', loadMoreVideos);
+
+// 스크롤 이벤트로 자동 로드 (선택적)
+let scrollTimeout;
+window.addEventListener('scroll', function() {
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(function() {
+        const scrollPosition = window.innerHeight + window.scrollY;
+        const pageHeight = document.documentElement.scrollHeight;
+
+        // 페이지 하단 근처에서 자동 로드
+        if (scrollPosition >= pageHeight - 500 && hasMore && !isLoading) {
+            loadMoreVideos();
+        }
+    }, 100);
+});
+
+async function loadMoreVideos() {
+    if (isLoading || !hasMore) return;
+
+    isLoading = true;
+    loadMoreBtn.style.display = 'none';
+    loadingSpinner.style.display = 'block';
+
+    try {
+        const response = await fetch(`/api/channel/${channelId}/videos?offset=${currentOffset}&limit=20`);
+        const data = await response.json();
+
+        if (data.success && data.videos && data.videos.length > 0) {
+            // 영상 카드 추가
+            data.videos.forEach(video => {
+                const videoCard = createVideoCard(video);
+                videoGrid.insertAdjacentHTML('beforeend', videoCard);
+            });
+
+            currentOffset += data.videos.length;
+            hasMore = data.has_more;
+
+            // 영상 개수 업데이트
+            videoCount.textContent = `(${currentOffset}개)`;
+
+            showToast(`${data.videos.length}개의 영상을 더 불러왔습니다`);
+        } else {
+            hasMore = false;
+            showToast('더 이상 불러올 영상이 없습니다');
+        }
+    } catch (error) {
+        console.error('Error loading more videos:', error);
+        showToast('영상을 불러오는 중 오류가 발생했습니다');
+    } finally {
+        isLoading = false;
+        loadingSpinner.style.display = 'none';
+
+        if (hasMore) {
+            loadMoreBtn.style.display = 'inline-block';
+        }
+    }
+}
+
+function createVideoCard(video) {
+    const duration = video.duration ? formatDuration(video.duration) : '';
+    const viewCount = video.view_count ? formatViews(video.view_count) : '';
+
+    return `
+        <a href="/watch?v=${video.id}" class="video-card">
+            <div class="thumbnail">
+                <img src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                ${duration ? `<span class="duration">${duration}</span>` : ''}
+            </div>
+            <div class="video-info">
+                <h4>${escapeHtml(video.title)}</h4>
+                ${viewCount ? `<p>${viewCount}회</p>` : ''}
+            </div>
+        </a>
+    `;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatViews(count) {
+    if (!count) return '0';
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
+    return count.toString();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+{% endif %}
 </script>
 {% endblock %}
