@@ -134,20 +134,35 @@ function closePlaylistModal() {
 async function addToPlaylist(playlistId) {
     if (!currentVideoData) return;
     
+    // API가 기대하는 형식으로 변환
+    const requestData = {
+        video_id: currentVideoData.id,
+        title: currentVideoData.title,
+        thumbnail: currentVideoData.thumbnail,
+        duration: currentVideoData.duration,
+        channel: currentVideoData.channel
+    };
+
+    console.log('Adding to playlist:', playlistId, requestData);
+
     try {
         const response = await fetch('/api/playlist/' + playlistId + '/add', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(currentVideoData)
+            body: JSON.stringify(requestData)
         });
         
-        if (response.ok) {
-            showToast('추가 완료');
+        const data = await response.json();
+        console.log('Response:', data);
+
+        if (data.success) {
+            showToast(data.message || '플레이리스트에 추가되었습니다');
             closePlaylistModal();
         } else {
-            showToast('이미 추가됨');
+            showToast(data.message || '추가할 수 없습니다');
         }
     } catch (e) {
+        console.error('Error:', e);
         showToast('오류 발생');
     }
 }

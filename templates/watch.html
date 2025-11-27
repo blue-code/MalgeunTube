@@ -422,10 +422,22 @@ if (addBtn) {
 
 function addToPlaylist(playlistId) {
     console.log('Adding to playlist:', playlistId, videoData);
+
+    // API가 기대하는 형식으로 변환
+    const requestData = {
+        video_id: videoData.id,
+        title: videoData.title,
+        thumbnail: videoData.thumbnail,
+        duration: videoData.duration,
+        channel: videoData.channel
+    };
+
+    console.log('Request data:', requestData);
+
     fetch('/api/playlist/' + playlistId + '/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(videoData)
+        body: JSON.stringify(requestData)
     })
     .then(function(response) {
         return response.json();
