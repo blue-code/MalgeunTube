@@ -1039,6 +1039,80 @@ def api_delete_playlist(playlist_id):
     delete_playlist(playlist_id)
     return jsonify({'success': True})
 
+@app.route('/api/playlist/<playlist_id>/reorder', methods=['POST'])
+def api_reorder_playlist(playlist_id):
+    """플레이리스트 영상 순서 변경"""
+    try:
+        data = request.get_json()
+        video_ids = data.get('video_ids', [])  # 새로운 순서의 video_id 배열
+
+        playlists = load_playlists()
+        for pl in playlists:
+            if pl['id'] == playlist_id:
+                # 기존 영상들을 딕셔너리로 변환 (빠른 검색)
+                video_dict = {v.get('id'): v for v in pl['videos']}
+
+                # 새로운 순서로 재배열
+                new_videos = []
+                for vid in video_ids:
+                    if vid in video_dict:
+                        new_videos.append(video_dict[vid])
+
+                pl['videos'] = new_videos
+                save_playlists(playlists)
+                return jsonify({'success': True, 'message': '순서가 변경되었습니다'})
+
+        return jsonify({'success': False, 'message': '플레이리스트를 찾을 수 없습니다'})
+    except Exception as e:
+        print(f"Error reordering playlist: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/playlist/<playlist_id>/move', methods=['POST'])
+def api_move_video_in_playlist(playlist_id):
+    """플레이리스트 내 영상을 특정 위치로 이동"""
+    try:
+        data = request.get_json()
+        video_id = data.get('video_id')
+        direction = data.get('direction')  # 'up', 'down', 'top', 'bottom'
+
+        playlists = load_playlists()
+        for pl in playlists:
+            if pl['id'] == playlist_id:
+                videos = pl['videos']
+
+                # 현재 인덱스 찾기
+                current_index = None
+                for i, v in enumerate(videos):
+                    if v.get('id') == video_id:
+                        current_index = i
+                        break
+
+                if current_index is None:
+                    return jsonify({'success': False, 'message': '영상을 찾을 수 없습니다'})
+
+                # 이동 처리
+                video = videos.pop(current_index)
+
+                if direction == 'up' and current_index > 0:
+                    videos.insert(current_index - 1, video)
+                elif direction == 'down' and current_index < len(videos):
+                    videos.insert(current_index + 1, video)
+                elif direction == 'top':
+                    videos.insert(0, video)
+                elif direction == 'bottom':
+                    videos.append(video)
+                else:
+                    videos.insert(current_index, video)  # 변경 없음
+
+                pl['videos'] = videos
+                save_playlists(playlists)
+                return jsonify({'success': True, 'message': '이동되었습니다'})
+
+        return jsonify({'success': False, 'message': '플레이리스트를 찾을 수 없습니다'})
+    except Exception as e:
+        print(f"Error moving video: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
 # ============== 나중에 볼 영상 API ==============
 
 @app.route('/api/watch-later/add', methods=['POST'])
