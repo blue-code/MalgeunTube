@@ -86,10 +86,10 @@
     {% if recommended %}
     <div class="section">
         <div class="section-header">
-            <h2>💡 추천 영상</h2>
+            <h2>💡 추천 영상 <span id="recommended-count">({{ recommended|length }}개)</span></h2>
             <p style="font-size: 0.9rem; color: var(--text-secondary); margin: 0;">시청 기록을 기반으로 선정되었습니다</p>
         </div>
-        <div class="video-grid">
+        <div class="video-grid" id="recommended-grid">
             {% for video in recommended %}
             <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
                 <div class="thumbnail">
@@ -108,6 +108,21 @@
             </a>
             {% endfor %}
         </div>
+
+        {% if recommended|length >= 12 %}
+        <div id="recommended-load-more" style="text-align: center; margin-top: 2rem;">
+            <button id="recommended-more-btn" class="btn">
+                더 많은 추천 영상 보기
+            </button>
+            <div id="recommended-loading" style="display: none; padding: 2rem;">
+                <div class="spinner"></div>
+                <p>추천 영상을 불러오는 중...</p>
+            </div>
+            <p id="recommended-no-more" style="display: none; color: var(--text-secondary); padding: 1rem;">
+                더 이상 추천 영상이 없습니다
+            </p>
+        </div>
+        {% endif %}
     </div>
     {% endif %}
 </div>
@@ -135,5 +150,129 @@ document.getElementById('url-form').addEventListener('submit', function(e) {
         }
     }
 });
+
+// 추천 영상 더보기 기능
+{% if recommended and recommended|length >= 12 %}
+let recommendedOffset = {{ recommended|length }};
+let isLoadingRecommended = false;
+let hasMoreRecommended = true;
+
+const recommendedMoreBtn = document.getElementById('recommended-more-btn');
+const recommendedLoading = document.getElementById('recommended-loading');
+const recommendedGrid = document.getElementById('recommended-grid');
+const recommendedCount = document.getElementById('recommended-count');
+const recommendedNoMore = document.getElementById('recommended-no-more');
+
+// 더보기 버튼 클릭
+recommendedMoreBtn?.addEventListener('click', loadMoreRecommended);
+
+// 자동 스크롤 로드 (추천 영상 섹션 근처)
+let scrollTimeout;
+window.addEventListener('scroll', function() {
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(function() {
+        const recommendedSection = document.getElementById('recommended-load-more');
+        if (!recommendedSection) return;
+
+        const rect = recommendedSection.getBoundingClientRect();
+        const isNearSection = rect.top < window.innerHeight + 300;
+
+        if (isNearSection && hasMoreRecommended && !isLoadingRecommended) {
+            loadMoreRecommended();
+        }
+    }, 100);
+});
+
+async function loadMoreRecommended() {
+    if (isLoadingRecommended || !hasMoreRecommended) return;
+
+    isLoadingRecommended = true;
+    recommendedMoreBtn.style.display = 'none';
+    recommendedLoading.style.display = 'block';
+
+    try {
+        console.log(`Loading more recommended videos, offset: ${recommendedOffset}`);
+        const response = await fetch(`/api/recommended?offset=${recommendedOffset}&limit=12`);
+        const data = await response.json();
+
+        console.log('Recommended API response:', data);
+
+        if (data.success && data.videos && data.videos.length > 0) {
+            // 추천 영상 추가
+            data.videos.forEach(video => {
+                const videoCard = createVideoCard(video);
+                recommendedGrid.insertAdjacentHTML('beforeend', videoCard);
+            });
+
+            recommendedOffset += data.videos.length;
+            hasMoreRecommended = data.has_more;
+
+            // 영상 개수 업데이트
+            recommendedCount.textContent = `(${recommendedOffset}개)`;
+
+            showToast(`${data.videos.length}개의 추천 영상을 더 불러왔습니다`);
+        } else {
+            hasMoreRecommended = false;
+            recommendedNoMore.style.display = 'block';
+            showToast('더 이상 추천 영상이 없습니다');
+        }
+    } catch (error) {
+        console.error('Error loading more recommended:', error);
+        showToast('추천 영상을 불러오는 중 오류가 발생했습니다');
+    } finally {
+        isLoadingRecommended = false;
+        recommendedLoading.style.display = 'none';
+
+        if (hasMoreRecommended) {
+            recommendedMoreBtn.style.display = 'inline-block';
+        } else {
+            recommendedNoMore.style.display = 'block';
+        }
+    }
+}
+
+function createVideoCard(video) {
+    const duration = video.duration ? formatDuration(video.duration) : '';
+    const viewCount = video.view_count ? formatViews(video.view_count) : '';
+
+    return `
+        <a href="/watch?v=${video.id}" class="video-card">
+            <div class="thumbnail">
+                <img src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                ${duration ? `<span class="duration">${duration}</span>` : ''}
+            </div>
+            <div class="video-info">
+                <h4>${escapeHtml(video.title)}</h4>
+                <p>${escapeHtml(video.channel || '')}</p>
+                ${viewCount ? `<p class="views">${viewCount}회</p>` : ''}
+            </div>
+        </a>
+    `;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatViews(count) {
+    if (!count) return '0';
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
+    return count.toString();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+{% endif %}
 </script>
 {% endblock %}

@@ -939,6 +939,57 @@ def api_search():
         traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/recommended', methods=['GET'])
+def api_recommended():
+    """추천 영상을 더 가져오는 API"""
+    try:
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 12, type=int)
+
+        print(f"=== API Recommended: offset: {offset}, limit: {limit} ===")
+
+        history = load_history()
+
+        if not history:
+            return jsonify({'success': False, 'error': 'No watch history'})
+
+        # 시청 기록에서 더 많은 샘플 선택
+        import random
+        sample_count = min(3, len(history[:10]))
+        sample_videos = random.sample(history[:10], sample_count)
+
+        all_recommended = []
+        for video in sample_videos:
+            related = get_related_videos(video.get('id'), max_results=10)
+            all_recommended.extend(related)
+
+        # 중복 제거
+        seen_ids = set([h.get('id') for h in history])
+        unique_recommended = []
+        for video in all_recommended:
+            if video.get('id') not in seen_ids:
+                seen_ids.add(video.get('id'))
+                unique_recommended.append(video)
+
+        # 랜덤 셔플
+        random.shuffle(unique_recommended)
+
+        # offset부터 limit개만큼 반환
+        videos = unique_recommended[offset:offset + limit]
+        has_more = len(unique_recommended) > offset + limit
+
+        return jsonify({
+            'success': True,
+            'videos': videos,
+            'has_more': has_more,
+            'total': len(unique_recommended)
+        })
+    except Exception as e:
+        print(f"Error in API recommended: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)})
+
 # ============== 템플릿 필터 ==============
 
 @app.template_filter('duration')
