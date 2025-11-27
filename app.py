@@ -510,7 +510,7 @@ def get_playlist_info(playlist_url):
     except Exception as e:
         return {'error': str(e)}
 
-def get_channel_videos(channel_url, max_videos=30):
+def get_channel_videos(channel_url, max_videos=50):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -641,7 +641,29 @@ def index():
     history = load_history()[:8]
     channels = load_channels()[:6]
     trending = get_trending_videos(8)
-    return render_template('index.html', history=history, channels=channels, trending=trending)
+
+    # 시청 기록 기반 추천 영상
+    recommended = []
+    if history:
+        # 최근 시청한 영상들에서 랜덤으로 선택
+        import random
+        sample_videos = random.sample(history[:5], min(2, len(history[:5])))
+        for video in sample_videos:
+            related = get_related_videos(video.get('id'), max_results=6)
+            recommended.extend(related)
+
+        # 중복 제거 및 셔플
+        seen_ids = set()
+        unique_recommended = []
+        for video in recommended:
+            if video.get('id') not in seen_ids and video.get('id') not in [h.get('id') for h in history]:
+                seen_ids.add(video.get('id'))
+                unique_recommended.append(video)
+
+        random.shuffle(unique_recommended)
+        recommended = unique_recommended[:12]
+
+    return render_template('index.html', history=history, channels=channels, trending=trending, recommended=recommended)
 
 @app.route('/watch')
 def watch():
@@ -758,10 +780,10 @@ def feed():
     channels = load_channels()
     all_videos = []
     
-    for channel in channels[:10]:
+    for channel in channels[:15]:  # 더 많은 채널에서 가져오기
         channel_url = channel.get('channel_url', '')
         if channel_url:
-            videos = get_channel_videos(channel_url, max_videos=5)
+            videos = get_channel_videos(channel_url, max_videos=10)  # 채널당 더 많은 영상
             if 'error' not in videos:
                 for video in videos.get('videos', []):
                     video['channel'] = channel.get('name')
@@ -770,7 +792,7 @@ def feed():
     
     random.shuffle(all_videos)
     
-    return render_template('feed.html', videos=all_videos[:30], channels=channels)
+    return render_template('feed.html', videos=all_videos[:60], channels=channels)  # 더 많은 영상 표시
 
 # ============== API 엔드포인트 ==============
 
@@ -807,16 +829,32 @@ def api_create_playlist():
 
 @app.route('/api/playlist/<playlist_id>/add', methods=['POST'])
 def api_add_to_playlist(playlist_id):
-    data = request.get_json()
-    video_info = {
-        'id': data.get('video_id'),
-        'title': data.get('title'),
-        'thumbnail': data.get('thumbnail'),
-        'duration': data.get('duration'),
-        'channel': data.get('channel')
-    }
-    success = add_to_playlist(playlist_id, video_info)
-    return jsonify({'success': success})
+    try:
+        data = request.get_json()
+        print(f"=== Adding to playlist {playlist_id} ===")
+        print(f"Request data: {data}")
+
+        video_info = {
+            'id': data.get('video_id'),
+            'title': data.get('title'),
+            'thumbnail': data.get('thumbnail'),
+            'duration': data.get('duration'),
+            'channel': data.get('channel')
+        }
+        print(f"Video info: {video_info}")
+
+        success = add_to_playlist(playlist_id, video_info)
+        print(f"Add result: {success}")
+
+        if success:
+            return jsonify({'success': True, 'message': '플레이리스트에 추가되었습니다.'})
+        else:
+            return jsonify({'success': False, 'message': '이미 플레이리스트에 있거나 추가할 수 없습니다.'})
+    except Exception as e:
+        print(f"Error adding to playlist: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'오류 발생: {str(e)}'})
 
 @app.route('/api/playlist/<playlist_id>/remove', methods=['POST'])
 def api_remove_from_playlist(playlist_id):

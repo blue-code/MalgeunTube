@@ -421,17 +421,27 @@ if (addBtn) {
 }
 
 function addToPlaylist(playlistId) {
+    console.log('Adding to playlist:', playlistId, videoData);
     fetch('/api/playlist/' + playlistId + '/add', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(videoData)
-    }).then(function(response) {
-        if (response.ok) {
-            showToast('추가 완료');
+    })
+    .then(function(response) {
+        return response.json();
+    })
+    .then(function(data) {
+        console.log('Add playlist response:', data);
+        if (data.success) {
+            showToast(data.message || '플레이리스트에 추가되었습니다');
             closePlaylistModal();
         } else {
-            showToast('이미 추가됨');
+            showToast(data.message || '추가할 수 없습니다');
         }
+    })
+    .catch(function(error) {
+        console.error('Error adding to playlist:', error);
+        showToast('오류가 발생했습니다');
     });
 }
 

@@ -82,6 +82,34 @@
         </div>
     </div>
     {% endif %}
+
+    {% if recommended %}
+    <div class="section">
+        <div class="section-header">
+            <h2>💡 추천 영상</h2>
+            <p style="font-size: 0.9rem; color: var(--text-secondary); margin: 0;">시청 기록을 기반으로 선정되었습니다</p>
+        </div>
+        <div class="video-grid">
+            {% for video in recommended %}
+            <a href="{{ url_for('watch', v=video.id) }}" class="video-card">
+                <div class="thumbnail">
+                    <img src="{{ video.thumbnail }}" alt="{{ video.title }}" loading="lazy">
+                    {% if video.duration %}
+                    <span class="duration">{{ video.duration|duration }}</span>
+                    {% endif %}
+                </div>
+                <div class="video-info">
+                    <h4>{{ video.title }}</h4>
+                    <p>{{ video.channel }}</p>
+                    {% if video.view_count %}
+                    <p class="views">{{ video.view_count|views }}회</p>
+                    {% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 </div>
 
 <script>
