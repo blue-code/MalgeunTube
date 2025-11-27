@@ -39,8 +39,18 @@ def allowed_file(filename):
 
 def load_json(filepath):
     if os.path.exists(filepath):
-        with open(filepath, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:
+                    return []
+                return json.loads(content)
+        except json.JSONDecodeError as e:
+            print(f"Error decoding JSON from {filepath}: {e}")
+            return []
+        except Exception as e:
+            print(f"Error loading JSON from {filepath}: {e}")
+            return []
     return []
 
 # ... (rest of json functions) ...
@@ -139,8 +149,18 @@ def serve_download(filename):
         return str(e), 500
 
 def save_json(filepath, data):
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    try:
+        # 디렉토리가 존재하는지 확인
+        directory = os.path.dirname(filepath)
+        if directory and not os.path.exists(directory):
+            os.makedirs(directory)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"Successfully saved JSON to {filepath}")
+    except Exception as e:
+        print(f"Error saving JSON to {filepath}: {e}")
+        raise
 
 # ============== 프로필 관리 함수 ==============
 
@@ -171,83 +191,143 @@ def get_data_path(file_type):
     if file_type == 'playlists': return os.path.join(DATA_DIR, f'playlists_{profile_id}.json')
     return None
 
+# ============== 전역 에러 핸들러 ==============
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # API 요청인 경우 JSON 응답 반환
+    if request.path.startswith('/api/'):
+        print(f"=== Global exception handler for API ===")
+        print(f"Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'서버 오류: {str(e)}'
+        }), 500
+    # 일반 페이지 요청은 기본 에러 처리
+    raise e
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': '요청한 API를 찾을 수 없습니다.'}), 404
+    return render_template('404.html'), 404 if os.path.exists(os.path.join(app.template_folder, '404.html')) else (str(e), 404)
+
+@app.errorhandler(500)
+def internal_error(e):
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': '내부 서버 오류가 발생했습니다.'}), 500
+    return str(e), 500
+
 # ============== 프로필 라우트 ==============
 
 @app.route('/profiles')
 def profiles_view():
     profiles = load_profiles()
-    return render_template('profiles.html', profiles=profiles)
+    current_profile_id = session.get('profile_id')
+    current_profile = get_profile(current_profile_id) if current_profile_id else None
+    return render_template('profiles.html', profiles=profiles, current_profile=current_profile)
 
 @app.route('/api/profile/create', methods=['POST'])
 def create_profile():
-    name = request.form.get('name')
-    if not name:
-        return jsonify({'success': False, 'message': '이름을 입력해주세요.'})
-    
-    avatar_path = '/static/avatars/default.png'
-    if 'avatar' in request.files:
-        file = request.files['avatar']
-        if file and file.filename and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            unique_filename = f"{uuid.uuid4()}_{filename}"
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], unique_filename))
-            avatar_path = f"/static/avatars/{unique_filename}"
-    
-    new_profile = {
-        'id': str(uuid.uuid4()),
-        'name': name,
-        'avatar': avatar_path,
-        'created_at': datetime.now().isoformat()
-    }
-    
-    profiles = load_profiles()
-    profiles.append(new_profile)
-    save_profiles(profiles)
-    
-    return jsonify({'success': True})
+    try:
+        print("=== Profile creation started ===")
+        print(f"Request method: {request.method}")
+        print(f"Request content type: {request.content_type}")
+
+        name = request.form.get('name')
+        print(f"Profile name: {name}")
+
+        if not name:
+            print("Error: No name provided")
+            return jsonify({'success': False, 'message': '이름을 입력해주세요.'})
+
+        avatar_path = '/static/avatars/default.svg'
+        if 'avatar' in request.files:
+            file = request.files['avatar']
+            print(f"Avatar file: {file.filename}")
+            if file and file.filename and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                unique_filename = f"{uuid.uuid4()}_{filename}"
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+                print(f"Saving avatar to: {filepath}")
+                file.save(filepath)
+                avatar_path = f"/static/avatars/{unique_filename}"
+
+        new_profile = {
+            'id': str(uuid.uuid4()),
+            'name': name,
+            'avatar': avatar_path,
+            'created_at': datetime.now().isoformat()
+        }
+        print(f"New profile created: {new_profile}")
+
+        profiles = load_profiles()
+        print(f"Existing profiles count: {len(profiles)}")
+        profiles.append(new_profile)
+        save_profiles(profiles)
+        print("Profile saved successfully")
+
+        return jsonify({'success': True, 'profile': new_profile})
+    except Exception as e:
+        print(f"=== Error creating profile ===")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'프로필 생성 중 오류 발생: {str(e)}'})
 
 @app.route('/api/profile/switch', methods=['POST'])
 def switch_profile():
-    data = request.get_json()
-    profile_id = data.get('profile_id')
-    
-    if get_profile(profile_id):
-        session['profile_id'] = profile_id
-        return jsonify({'success': True})
-    
-    return jsonify({'success': False, 'message': '프로필을 찾을 수 없습니다.'})
+    try:
+        data = request.get_json()
+        profile_id = data.get('profile_id')
+
+        if get_profile(profile_id):
+            session['profile_id'] = profile_id
+            return jsonify({'success': True})
+
+        return jsonify({'success': False, 'message': '프로필을 찾을 수 없습니다.'})
+    except Exception as e:
+        print(f"Error switching profile: {e}")
+        return jsonify({'success': False, 'message': f'프로필 전환 중 오류 발생: {str(e)}'})
 
 @app.route('/api/profile/delete', methods=['POST'])
 def delete_profile():
-    data = request.get_json()
-    profile_id = data.get('profile_id')
-    
-    profiles = load_profiles()
-    profiles = [p for p in profiles if p['id'] != profile_id]
-    save_profiles(profiles)
-    
-    # 데이터 파일 삭제
     try:
-        for ftype in ['history', 'channels', 'playlists']:
-            path = os.path.join(DATA_DIR, f'{ftype}_{profile_id}.json')
-            if os.path.exists(path):
-                os.remove(path)
-    except:
-        pass
-        
-    if session.get('profile_id') == profile_id:
-        session.pop('profile_id', None)
-        
-    return jsonify({'success': True})
+        data = request.get_json()
+        profile_id = data.get('profile_id')
+
+        profiles = load_profiles()
+        profiles = [p for p in profiles if p['id'] != profile_id]
+        save_profiles(profiles)
+
+        # 데이터 파일 삭제
+        try:
+            for ftype in ['history', 'channels', 'playlists']:
+                path = os.path.join(DATA_DIR, f'{ftype}_{profile_id}.json')
+                if os.path.exists(path):
+                    os.remove(path)
+        except Exception as file_error:
+            print(f"Error deleting profile data files: {file_error}")
+
+        if session.get('profile_id') == profile_id:
+            session.pop('profile_id', None)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error deleting profile: {e}")
+        return jsonify({'success': False, 'message': f'프로필 삭제 중 오류 발생: {str(e)}'})
 
 @app.before_request
 def check_profile():
     # Static resources and specific routes don't need profile check
-    if request.endpoint and (
-        'static' in request.endpoint or 
-        'api/profile' in request.endpoint or 
-        request.endpoint == 'profiles_view'
-    ):
+    # Check by path (URL) not endpoint (function name)
+    if (request.path.startswith('/static/') or
+        request.path.startswith('/api/profile') or
+        request.path == '/profiles' or
+        request.endpoint == 'static'):
         return
 
     # If no profile in session, redirect to profiles page

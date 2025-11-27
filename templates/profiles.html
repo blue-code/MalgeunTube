@@ -231,7 +231,25 @@ async function createProfile() {
             method: 'POST',
             body: formData
         });
+
+        console.log('Response status:', response.status);
+        console.log('Response headers:', response.headers);
+
+        // 응답이 JSON인지 확인
+        const contentType = response.headers.get('content-type');
+        console.log('Content-Type:', contentType);
+
+        if (!contentType || !contentType.includes('application/json')) {
+            // 실제 응답 내용을 로그로 출력
+            const text = await response.text();
+            console.error('Server response (non-JSON):', text);
+            showToast('서버 오류: JSON 응답을 받지 못했습니다. 콘솔을 확인하세요.');
+            return;
+        }
+
         const data = await response.json();
+        console.log('Response data:', data);
+
         if (data.success) {
             showToast('프로필 생성 완료!');
             location.reload();
