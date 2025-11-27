@@ -719,7 +719,7 @@ def search():
     query = request.args.get('q', '')
     results = []
     if query:
-        results = search_youtube(query)
+        results = search_youtube(query, max_results=30)  # 초기 30개 로드
         if isinstance(results, list):
             for video in results:
                 if video.get('channel_id'):
@@ -895,6 +895,48 @@ def api_get_channel_videos(channel_id):
         })
     except Exception as e:
         print(f"Error loading more videos: {e}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/search', methods=['GET'])
+def api_search():
+    """검색 결과를 더 가져오는 API"""
+    try:
+        query = request.args.get('q', '')
+        offset = request.args.get('offset', 0, type=int)
+        limit = request.args.get('limit', 20, type=int)
+
+        if not query:
+            return jsonify({'success': False, 'error': 'Query is required'})
+
+        print(f"=== API Search: {query}, offset: {offset}, limit: {limit} ===")
+
+        # 더 많은 결과 요청 (최대 50개까지)
+        max_results = min(offset + limit, 50)
+        results = search_youtube(query, max_results=max_results)
+
+        if isinstance(results, dict) and 'error' in results:
+            return jsonify({'success': False, 'error': results['error']})
+
+        # offset부터 limit개만큼 잘라서 반환
+        videos = results[offset:offset + limit] if isinstance(results, list) else []
+
+        # 구독 정보 추가
+        for video in videos:
+            if video.get('channel_id'):
+                video['is_subscribed'] = is_channel_subscribed(video['channel_id'])
+
+        has_more = len(results) > offset + limit and len(results) < 50
+
+        return jsonify({
+            'success': True,
+            'videos': videos,
+            'has_more': has_more,
+            'total': len(results)
+        })
+    except Exception as e:
+        print(f"Error in API search: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)})
 
 # ============== 템플릿 필터 ==============

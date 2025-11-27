@@ -12,7 +12,10 @@
         <p>검색 중 오류가 발생했습니다: {{ results.error }}</p>
     </div>
     {% elif results %}
-    <div class="search-results">
+    <div class="search-results-header">
+        <p id="result-count">검색 결과 <span id="count-number">{{ results|length }}</span>개</p>
+    </div>
+    <div class="search-results" id="search-results">
         {% for video in results %}
         <div class="search-item">
             <a href="{{ url_for('watch', v=video.id) }}" class="search-link">
@@ -52,6 +55,21 @@
         </div>
         {% endfor %}
     </div>
+
+    {% if results|length >= 20 %}
+    <div id="load-more-container" style="text-align: center; margin-top: 2rem;">
+        <button id="load-more-btn" class="btn">
+            더 많은 결과 보기
+        </button>
+        <div id="loading-spinner" style="display: none; padding: 2rem;">
+            <div class="spinner"></div>
+            <p>검색 결과를 불러오는 중...</p>
+        </div>
+        <p id="no-more-results" style="display: none; color: var(--text-secondary); padding: 1rem;">
+            더 이상 검색 결과가 없습니다
+        </p>
+    </div>
+    {% endif %}
     {% else %}
     <div class="no-results">
         <p>검색 결과가 없습니다.</p>
@@ -196,6 +214,151 @@ document.getElementById('playlist-modal').addEventListener('click', function(e) 
 document.getElementById('new-playlist-name').addEventListener('keypress', function(e) {
     if (e.key === 'Enter') createAndAddPlaylist();
 });
+
+// 더보기 기능
+{% if results and results|length >= 20 %}
+const searchQuery = '{{ query }}';
+let currentOffset = {{ results|length }};
+let isLoading = false;
+let hasMore = true;
+
+const loadMoreBtn = document.getElementById('load-more-btn');
+const loadingSpinner = document.getElementById('loading-spinner');
+const searchResults = document.getElementById('search-results');
+const countNumber = document.getElementById('count-number');
+const noMoreResults = document.getElementById('no-more-results');
+
+// 더보기 버튼 클릭
+loadMoreBtn?.addEventListener('click', loadMoreResults);
+
+// 자동 스크롤 로드 (선택적)
+let scrollTimeout;
+window.addEventListener('scroll', function() {
+    if (scrollTimeout) clearTimeout(scrollTimeout);
+    scrollTimeout = setTimeout(function() {
+        const scrollPosition = window.innerHeight + window.scrollY;
+        const pageHeight = document.documentElement.scrollHeight;
+
+        // 페이지 하단 근처에서 자동 로드
+        if (scrollPosition >= pageHeight - 500 && hasMore && !isLoading) {
+            loadMoreResults();
+        }
+    }, 100);
+});
+
+async function loadMoreResults() {
+    if (isLoading || !hasMore) return;
+
+    isLoading = true;
+    loadMoreBtn.style.display = 'none';
+    loadingSpinner.style.display = 'block';
+
+    try {
+        console.log(`Loading more results for: ${searchQuery}, offset: ${currentOffset}`);
+        const response = await fetch(`/api/search?q=${encodeURIComponent(searchQuery)}&offset=${currentOffset}&limit=20`);
+        const data = await response.json();
+
+        console.log('Search API response:', data);
+
+        if (data.success && data.videos && data.videos.length > 0) {
+            // 검색 결과 추가
+            data.videos.forEach(video => {
+                const searchItem = createSearchItem(video);
+                searchResults.insertAdjacentHTML('beforeend', searchItem);
+            });
+
+            currentOffset += data.videos.length;
+            hasMore = data.has_more;
+
+            // 결과 개수 업데이트
+            countNumber.textContent = currentOffset;
+
+            showToast(`${data.videos.length}개의 결과를 더 불러왔습니다`);
+        } else {
+            hasMore = false;
+            noMoreResults.style.display = 'block';
+            showToast('더 이상 검색 결과가 없습니다');
+        }
+    } catch (error) {
+        console.error('Error loading more results:', error);
+        showToast('검색 결과를 불러오는 중 오류가 발생했습니다');
+    } finally {
+        isLoading = false;
+        loadingSpinner.style.display = 'none';
+
+        if (hasMore) {
+            loadMoreBtn.style.display = 'inline-block';
+        } else {
+            noMoreResults.style.display = 'block';
+        }
+    }
+}
+
+function createSearchItem(video) {
+    const duration = video.duration ? formatDuration(video.duration) : '';
+    const viewCount = video.view_count ? formatViews(video.view_count) : '';
+    const isSubscribed = video.is_subscribed || false;
+
+    return `
+        <div class="search-item">
+            <a href="/watch?v=${video.id}" class="search-link">
+                <div class="thumbnail">
+                    <img src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                    ${duration ? `<span class="duration">${duration}</span>` : ''}
+                </div>
+                <div class="search-info">
+                    <h3>${escapeHtml(video.title)}</h3>
+                    <p class="channel">${escapeHtml(video.channel || '')}</p>
+                    ${viewCount ? `<p class="views">조회수 ${viewCount}회</p>` : ''}
+                </div>
+            </a>
+            <div class="search-actions">
+                ${video.channel_id ? `
+                <button class="action-btn subscribe-btn ${isSubscribed ? 'subscribed' : ''}"
+                        onclick="toggleSubscribe(this, '${video.channel_id}', '${escapeHtml(video.channel)}')"
+                        title="${isSubscribed ? '구독 취소' : '구독'}">
+                    ${isSubscribed ? '★' : '☆'}
+                </button>
+                ` : ''}
+                <button class="action-btn"
+                        onclick="openPlaylistModal(this)"
+                        data-id="${video.id}"
+                        data-title="${escapeHtml(video.title)}"
+                        data-thumbnail="${video.thumbnail}"
+                        data-duration="${video.duration || 0}"
+                        data-channel="${escapeHtml(video.channel || '')}"
+                        title="플레이리스트에 추가">
+                    ➕
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '0:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hours > 0) {
+        return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatViews(count) {
+    if (!count) return '0';
+    if (count >= 1000000) return (count / 1000000).toFixed(1) + 'M';
+    if (count >= 1000) return (count / 1000).toFixed(1) + 'K';
+    return count.toString();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+}
+{% endif %}
 </script>
 
 <style>
@@ -225,6 +388,20 @@ document.getElementById('new-playlist-name').addEventListener('keypress', functi
 
 .subscribe-btn.subscribed:hover {
     color: #ffed4a;
+}
+
+.search-results-header {
+    margin-bottom: 1rem;
+}
+
+.search-results-header p {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+#count-number {
+    font-weight: 600;
+    color: var(--text-primary);
 }
 </style>
 {% endblock %}
