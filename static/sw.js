@@ -3,9 +3,11 @@
  * 오프라인 지원 및 캐싱 전략
  */
 
-const CACHE_NAME = 'malgeuntube-v1';
-const STATIC_CACHE_NAME = 'malgeuntube-static-v1';
-const DYNAMIC_CACHE_NAME = 'malgeuntube-dynamic-v1';
+// 캐시 버전 - 배포 시 업데이트
+const SW_VERSION = '1.0.0';
+const CACHE_NAME = `malgeuntube-${SW_VERSION}`;
+const STATIC_CACHE_NAME = `malgeuntube-static-${SW_VERSION}`;
+const DYNAMIC_CACHE_NAME = `malgeuntube-dynamic-${SW_VERSION}`;
 
 // 정적 리소스 캐시 목록
 const STATIC_ASSETS = [

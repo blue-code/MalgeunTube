@@ -11,8 +11,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class Config:
     """기본 설정 클래스"""
-    # 시크릿 키 - 환경변수에서 로드하거나 기본값 사용 (프로덕션에서는 반드시 환경변수 사용)
-    SECRET_KEY = os.environ.get('SECRET_KEY') or os.urandom(24).hex()
+    # 시크릿 키 - 환경변수에서 로드
+    # 개발 환경에서는 고정된 개발용 키 사용, 프로덕션에서는 반드시 환경변수 설정 필요
+    _default_dev_key = 'dev-secret-key-for-development-only-change-in-production'
+    SECRET_KEY = os.environ.get('SECRET_KEY') or _default_dev_key
     
     # 데이터 디렉토리 설정
     DATA_DIR = os.path.join(BASE_DIR, 'data')

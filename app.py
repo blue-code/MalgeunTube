@@ -40,8 +40,7 @@ config_obj = get_config()
 app.config.from_object(config_obj)
 config_obj.init_app(app)
 
-# 시크릿 키 설정 (환경변수에서 로드, 없으면 설정에서 가져옴)
-app.secret_key = app.config.get('SECRET_KEY') or os.urandom(24).hex()
+# 시크릿 키는 config에서 이미 설정됨 - 별도 설정 불필요
 
 # ============== 로깅 설정 ==============
 
