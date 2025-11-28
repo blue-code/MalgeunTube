@@ -12,7 +12,8 @@
     
     <!-- PWA Manifest -->
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
-    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icons/icon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon.svg') }}">
     
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -98,13 +99,13 @@
     </main>
     
     <div id="settings-modal" class="modal">
-        <div class="modal-content" style="max-width: 300px;">
+        <div class="modal-content" style="max-width: 350px;">
             <div class="modal-header">
                 <h3>설정</h3>
                 <button class="modal-close" id="close-settings">×</button>
             </div>
             <div class="modal-body">
-                <div class="control-group" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                <div class="control-group" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%; margin-bottom: 1.5rem;">
                     <label style="font-weight: 500;">기본 화질 설정</label>
                     <select id="default-quality-select" style="width: 100%; padding: 0.75rem; border-radius: 8px; background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">
                         <option value="best">최고 화질 (Best)</option>
@@ -116,6 +117,24 @@
                     </select>
                     <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
                         선택한 화질이 없을 경우 가장 가까운 화질로 재생됩니다.
+                    </p>
+                </div>
+                <div class="control-group" style="display: flex; flex-direction: column; gap: 0.5rem; width: 100%;">
+                    <label style="font-weight: 500;">국가 설정</label>
+                    <select id="country-select" style="width: 100%; padding: 0.75rem; border-radius: 8px; background-color: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border);">
+                        <option value="KR">🇰🇷 한국</option>
+                        <option value="US">🇺🇸 미국</option>
+                        <option value="JP">🇯🇵 일본</option>
+                        <option value="GB">🇬🇧 영국</option>
+                        <option value="DE">🇩🇪 독일</option>
+                        <option value="FR">🇫🇷 프랑스</option>
+                        <option value="CA">🇨🇦 캐나다</option>
+                        <option value="AU">🇦🇺 호주</option>
+                        <option value="IN">🇮🇳 인도</option>
+                        <option value="BR">🇧🇷 브라질</option>
+                    </select>
+                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin-top: 0.25rem;">
+                        인기급상승 및 추천 영상에 영향을 줍니다.
                     </p>
                 </div>
             </div>
@@ -269,6 +288,7 @@
             var settingsModal = document.getElementById('settings-modal');
             var closeSettingsBtn = document.getElementById('close-settings');
             var qualitySelect = document.getElementById('default-quality-select');
+            var countrySelect = document.getElementById('country-select');
             
             if (qualitySelect) {
                 var savedQuality = localStorage.getItem('preferredQuality') || 'best';
@@ -277,6 +297,44 @@
                 qualitySelect.addEventListener('change', function() {
                     localStorage.setItem('preferredQuality', this.value);
                     showToast('기본 화질이 저장되었습니다.');
+                });
+            }
+            
+            // 국가 설정 로드 및 저장
+            if (countrySelect) {
+                // 서버에서 국가 설정 로드
+                fetch('/api/settings/country')
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            countrySelect.value = data.country;
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('Error loading country setting:', error);
+                    });
+                
+                countrySelect.addEventListener('change', function() {
+                    var selectedCountry = this.value;
+                    fetch('/api/settings', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ country: selectedCountry })
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.success) {
+                            showToast('국가 설정이 저장되었습니다.');
+                        } else {
+                            showToast('설정 저장에 실패했습니다.');
+                        }
+                    })
+                    .catch(function(error) {
+                        console.error('Error saving country setting:', error);
+                        showToast('설정 저장에 실패했습니다.');
+                    });
                 });
             }
             
