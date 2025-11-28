@@ -444,7 +444,10 @@ def not_found(e):
     """404 에러 핸들러"""
     if request.path.startswith('/api/'):
         return jsonify({'success': False, 'message': '요청한 API를 찾을 수 없습니다.'}), 404
-    return render_template('404.html'), 404 if os.path.exists(os.path.join(app.template_folder, '404.html')) else (str(e), 404)
+    if os.path.exists(os.path.join(app.template_folder, '404.html')):
+        return render_template('404.html'), 404
+    else:
+        return str(e), 404
 
 @app.errorhandler(500)
 def internal_error(e):
@@ -664,6 +667,45 @@ def delete_playlist(playlist_id):
     playlists = load_playlists()
     playlists = [pl for pl in playlists if pl['id'] != playlist_id]
     save_playlists(playlists)
+
+# ============== 설정 관리 ==============
+
+# 기본 국가 설정
+DEFAULT_COUNTRY = 'KR'
+
+# 지원하는 국가 목록
+SUPPORTED_COUNTRIES = {
+    'KR': '한국',
+    'US': '미국',
+    'JP': '일본',
+    'GB': '영국',
+    'DE': '독일',
+    'FR': '프랑스',
+    'CA': '캐나다',
+    'AU': '호주',
+    'IN': '인도',
+    'BR': '브라질'
+}
+
+def load_settings():
+    """사용자 설정 로드"""
+    settings_file = os.path.join(DATA_DIR, f'settings_{session.get("profile_id", "default")}.json')
+    settings = load_json(settings_file)
+    if isinstance(settings, list):
+        # 기존 데이터가 리스트인 경우 (잘못된 형식) 기본값 반환
+        app.logger.warning(f"Settings file contains list instead of dict, using defaults: {settings_file}")
+        return {'country': DEFAULT_COUNTRY}
+    return settings if settings else {'country': DEFAULT_COUNTRY}
+
+def save_settings(settings):
+    """사용자 설정 저장"""
+    settings_file = os.path.join(DATA_DIR, f'settings_{session.get("profile_id", "default")}.json')
+    save_json(settings_file, settings)
+
+def get_country_setting():
+    """현재 국가 설정 가져오기"""
+    settings = load_settings()
+    return settings.get('country', DEFAULT_COUNTRY)
 
 # ============== 나중에 볼 영상 관리 ==============
 
@@ -982,12 +1024,16 @@ def search_youtube(query, max_results=20):
         app.logger.error(f"Error searching YouTube: {e}")
         return {'error': str(e)}
 
-def get_trending_videos(max_results=20):
+def get_trending_videos(max_results=20, country=None):
     """트렌딩 영상 가져오기 (trending 페이지 대신 인기 검색어 사용)"""
+    if country is None:
+        country = get_country_setting()
+    
     ydl_opts = get_ydl_base_opts()
     ydl_opts.update({
         'extract_flat': True,
         'playlistend': max_results,
+        'geo_bypass_country': country,
     })
 
     try:
@@ -1014,6 +1060,14 @@ def get_trending_videos(max_results=20):
         return []
 
 # ============== 라우트 ==============
+
+@app.route('/favicon.ico')
+def favicon():
+    """Favicon 제공"""
+    return send_file(
+        os.path.join(app.static_folder, 'icons', 'icon.svg'),
+        mimetype='image/svg+xml'
+    )
 
 @app.route('/')
 def index():
@@ -1591,6 +1645,53 @@ def api_clear_search_history():
     """검색 기록 삭제 API"""
     save_search_history([])
     return jsonify({'success': True, 'message': '검색 기록이 삭제되었습니다'})
+
+# ============== 설정 API ==============
+
+@app.route('/api/settings', methods=['GET'])
+def api_get_settings():
+    """사용자 설정 조회 API"""
+    try:
+        settings = load_settings()
+        return jsonify({
+            'success': True,
+            'settings': settings,
+            'countries': SUPPORTED_COUNTRIES
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting settings: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/settings', methods=['POST'])
+def api_save_settings():
+    """사용자 설정 저장 API"""
+    try:
+        data = request.get_json()
+        settings = load_settings()
+        
+        # 국가 설정 업데이트
+        if 'country' in data:
+            country = data['country']
+            if country in SUPPORTED_COUNTRIES:
+                settings['country'] = country
+            else:
+                return jsonify({'success': False, 'message': '지원하지 않는 국가입니다.'})
+        
+        save_settings(settings)
+        return jsonify({'success': True, 'message': '설정이 저장되었습니다.', 'settings': settings})
+    except Exception as e:
+        app.logger.error(f"Error saving settings: {e}")
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/settings/country', methods=['GET'])
+def api_get_country():
+    """현재 국가 설정 조회 API"""
+    country = get_country_setting()
+    return jsonify({
+        'success': True,
+        'country': country,
+        'country_name': SUPPORTED_COUNTRIES.get(country, country)
+    })
 
 # ============== 템플릿 필터 ==============
 
