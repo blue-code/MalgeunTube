@@ -39,6 +39,7 @@
         isSwiping: false,
         swipeDirection: null,
         pinchStartDistance: 0,
+        pinchLastDistance: 0,
         isPinching: false,
         brightnessFilter: null
     };
@@ -99,13 +100,13 @@
         var leftFeedback = document.createElement('div');
         leftFeedback.className = 'double-tap-feedback left';
         leftFeedback.id = 'double-tap-left';
-        leftFeedback.innerHTML = '<div class="ripple"></div><div class="icon">◀◀<span class="seek-text">10초</span></div>';
+        leftFeedback.innerHTML = '<div class="ripple"></div><div class="icon">◀◀<span class="seek-text">' + CONFIG.SEEK_TIME + '초</span></div>';
         
         // 더블 탭 피드백 (오른쪽)
         var rightFeedback = document.createElement('div');
         rightFeedback.className = 'double-tap-feedback right';
         rightFeedback.id = 'double-tap-right';
-        rightFeedback.innerHTML = '<div class="ripple"></div><div class="icon"><span class="seek-text">10초</span>▶▶</div>';
+        rightFeedback.innerHTML = '<div class="ripple"></div><div class="icon"><span class="seek-text">' + CONFIG.SEEK_TIME + '초</span>▶▶</div>';
         
         // 더블 탭 피드백 (중앙)
         var centerFeedback = document.createElement('div');
@@ -328,18 +329,25 @@
      */
     function toggleFullscreen(player) {
         if (document.fullscreenElement) {
-            document.exitFullscreen().catch(function() {});
+            document.exitFullscreen().catch(function(err) {
+                console.warn('Failed to exit fullscreen:', err);
+            });
         } else if (player) {
             var wrapper = player.closest('.video-wrapper');
             if (wrapper && wrapper.requestFullscreen) {
-                wrapper.requestFullscreen().catch(function() {
+                wrapper.requestFullscreen().catch(function(err) {
+                    console.warn('Wrapper fullscreen failed, trying video element:', err);
                     // wrapper 전체화면 실패 시 비디오 전체화면 시도
                     if (player.requestFullscreen) {
-                        player.requestFullscreen().catch(function() {});
+                        player.requestFullscreen().catch(function(err2) {
+                            console.warn('Video fullscreen also failed:', err2);
+                        });
                     }
                 });
             } else if (player.requestFullscreen) {
-                player.requestFullscreen().catch(function() {});
+                player.requestFullscreen().catch(function(err) {
+                    console.warn('Video fullscreen failed:', err);
+                });
             }
         }
     }
@@ -354,6 +362,7 @@
         if (e.touches.length === 2) {
             state.isPinching = true;
             state.pinchStartDistance = getTouchDistance(e.touches);
+            state.pinchLastDistance = state.pinchStartDistance;
             return;
         }
         
@@ -370,7 +379,8 @@
         
         // 밝기 값 초기화 (brightness filter opacity에서 역산)
         if (state.brightnessFilter) {
-            state.initialBrightness = 1 - parseFloat(state.brightnessFilter.style.opacity || 0);
+            var opacityValue = parseFloat(state.brightnessFilter.style.opacity || '0');
+            state.initialBrightness = 1 - (isNaN(opacityValue) ? 0 : opacityValue);
         } else {
             state.initialBrightness = 1;
         }
@@ -383,6 +393,8 @@
         // 핀치 중
         if (state.isPinching && e.touches.length === 2) {
             e.preventDefault();
+            // Track the current pinch distance for use on touch end
+            state.pinchLastDistance = getTouchDistance(e.touches);
             return;
         }
         
@@ -421,10 +433,8 @@
         // 핀치 종료
         if (state.isPinching) {
             if (e.touches.length < 2) {
-                var endDistance = e.touches.length === 1 
-                    ? getTouchDistance([e.touches[0], e.changedTouches[0]])
-                    : getTouchDistance(e.changedTouches);
-                
+                // Use the last tracked distance from touchmove, falling back to start distance
+                var endDistance = state.pinchLastDistance || state.pinchStartDistance;
                 var pinchDelta = endDistance - state.pinchStartDistance;
                 
                 if (Math.abs(pinchDelta) > CONFIG.PINCH_THRESHOLD) {
@@ -445,6 +455,7 @@
                 
                 state.isPinching = false;
                 state.pinchStartDistance = 0;
+                state.pinchLastDistance = 0;
             }
             return;
         }
