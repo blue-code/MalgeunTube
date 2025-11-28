@@ -365,6 +365,8 @@ document.addEventListener('DOMContentLoaded', function() {
     if (player) {
         player.addEventListener('loadstart', function() { loading.style.display = 'flex'; });
         player.addEventListener('canplay', function() { loading.style.display = 'none'; });
+        player.addEventListener('playing', function() { loading.style.display = 'none'; });
+        player.addEventListener('waiting', function() { loading.style.display = 'flex'; });
         player.addEventListener('error', function() {
             loading.innerHTML = '<p>⚠️ 재생 불가</p>';
         });
