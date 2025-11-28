@@ -670,6 +670,9 @@ def delete_playlist(playlist_id):
 
 # ============== 설정 관리 ==============
 
+# 기본 국가 설정
+DEFAULT_COUNTRY = 'KR'
+
 # 지원하는 국가 목록
 SUPPORTED_COUNTRIES = {
     'KR': '한국',
@@ -689,9 +692,10 @@ def load_settings():
     settings_file = os.path.join(DATA_DIR, f'settings_{session.get("profile_id", "default")}.json')
     settings = load_json(settings_file)
     if isinstance(settings, list):
-        # 기존 데이터가 리스트인 경우 딕셔너리로 변환
-        return {'country': 'KR'}
-    return settings if settings else {'country': 'KR'}
+        # 기존 데이터가 리스트인 경우 (잘못된 형식) 기본값 반환
+        app.logger.warning(f"Settings file contains list instead of dict, using defaults: {settings_file}")
+        return {'country': DEFAULT_COUNTRY}
+    return settings if settings else {'country': DEFAULT_COUNTRY}
 
 def save_settings(settings):
     """사용자 설정 저장"""
@@ -701,7 +705,7 @@ def save_settings(settings):
 def get_country_setting():
     """현재 국가 설정 가져오기"""
     settings = load_settings()
-    return settings.get('country', 'KR')
+    return settings.get('country', DEFAULT_COUNTRY)
 
 # ============== 나중에 볼 영상 관리 ==============
 
