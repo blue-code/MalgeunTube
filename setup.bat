@@ -15,7 +15,7 @@ echo Done!
 echo.
 
 echo [3/4] Installing dependencies...
-pip install Flask yt-dlp
+pip install -r requirements.txt
 echo Done!
 echo. 
 

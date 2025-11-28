@@ -133,6 +133,27 @@ download_progress = {}
 download_tasks = {}  # {download_id: Future}
 executor = ThreadPoolExecutor(max_workers=3)  # 최대 3개 동시 다운로드
 
+# yt-dlp 공통 설정 (봇 방지 우회)
+def get_ydl_base_opts():
+    """yt-dlp 기본 옵션 반환 (봇 방지 우회 포함)"""
+    return {
+        'quiet': True,
+        'no_warnings': True,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'referer': 'https://www.youtube.com/',
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'player_skip': ['webpage', 'configs'],
+            }
+        },
+        'http_headers': {
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
+    }
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -198,13 +219,12 @@ def download_video_task(video_id, download_type, quality, download_id):
         video_url = f"https://www.youtube.com/watch?v={video_id}"
         file_id = str(uuid.uuid4())
 
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
+        ydl_opts = get_ydl_base_opts()
+        ydl_opts.update({
             'outtmpl': os.path.join(DOWNLOAD_DIR, f'{file_id}.%(ext)s'),
             'progress_hooks': [lambda d: progress_hook(d, download_id)],
-        }
-        
+        })
+
         if download_type == 'audio':
             ydl_opts.update({
                 'format': 'bestaudio/best',
@@ -782,12 +802,9 @@ def get_search_suggestions(query):
 @cache.memoize(timeout=3600)  # 1시간 캐시
 def get_video_info_cached(video_url):
     """비디오 정보 가져오기 (캐시됨) - is_subscribed 제외"""
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': False,
-    }
-    
+    ydl_opts = get_ydl_base_opts()
+    ydl_opts['extract_flat'] = False
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
@@ -836,13 +853,12 @@ def get_video_info(video_url):
     return video_info
 
 def get_playlist_info(playlist_url):
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
+    ydl_opts = get_ydl_base_opts()
+    ydl_opts.update({
         'extract_flat': True,
         'ignoreerrors': True,
-    }
-    
+    })
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(playlist_url, download=False)
@@ -909,12 +925,9 @@ def get_channel_videos(channel_url, max_videos=100):
         return {'error': str(e)}
 
 def get_related_videos(video_id, max_results=12):
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': True,
-    }
-    
+    ydl_opts = get_ydl_base_opts()
+    ydl_opts['extract_flat'] = True
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             video_info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
@@ -944,12 +957,9 @@ def get_related_videos(video_id, max_results=12):
 @cache.memoize(timeout=900)  # 15분 캐시
 def search_youtube(query, max_results=20):
     """YouTube 검색 (캐시됨)"""
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': True,
-    }
-    
+    ydl_opts = get_ydl_base_opts()
+    ydl_opts['extract_flat'] = True
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             results = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
@@ -973,17 +983,20 @@ def search_youtube(query, max_results=20):
         return {'error': str(e)}
 
 def get_trending_videos(max_results=20):
-    ydl_opts = {
-        'quiet': True,
-        'no_warnings': True,
+    """트렌딩 영상 가져오기 (trending 페이지 대신 인기 검색어 사용)"""
+    ydl_opts = get_ydl_base_opts()
+    ydl_opts.update({
         'extract_flat': True,
         'playlistend': max_results,
-    }
-    
+    })
+
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            results = ydl.extract_info("https://www.youtube.com/feed/trending", download=False)
-            
+            # trending 페이지 대신 인기 검색어로 대체
+            popular_queries = ['music', 'gaming', 'news', 'sports', 'entertainment']
+            query = random.choice(popular_queries)
+            results = ydl.extract_info(f"ytsearch{max_results}:{query}", download=False)
+
             videos = []
             if results and 'entries' in results:
                 for entry in results['entries'][:max_results]:
