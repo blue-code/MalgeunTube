@@ -41,11 +41,13 @@
                     <div class="control-group">
                         <label>속도</label>
                         <select id="speed">
+                            <option value="0.25">0.25x</option>
                             <option value="0.5">0.5x</option>
                             <option value="0.75">0.75x</option>
                             <option value="1" selected>1x</option>
                             <option value="1.25">1.25x</option>
                             <option value="1.5">1.5x</option>
+                            <option value="1.75">1.75x</option>
                             <option value="2">2x</option>
                         </select>
                     </div>
@@ -61,6 +63,22 @@
                     </div>
                     {% endif %}
                 </div>
+                
+                <!-- PiP (Picture-in-Picture) 버튼 -->
+                <button id="pip-btn" class="btn btn-icon" title="PiP 모드" onclick="togglePiP()">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M19 7h-8v6h8V7zm2-4H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/>
+                    </svg>
+                    <span>PiP</span>
+                </button>
+                
+                <!-- 키보드 단축키 도움말 버튼 -->
+                <button class="btn btn-icon" title="단축키 도움말" onclick="document.getElementById('keyboard-help-modal').classList.add('show')">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/>
+                    </svg>
+                    <span>단축키</span>
+                </button>
                 
                 <button id="download-btn" class="btn btn-icon" title="다운로드" onclick="openDownloadModal()">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
@@ -444,6 +462,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 case 'l':
                     player.currentTime += 5;
                     break;
+                case 'arrowup':
+                    e.preventDefault();
+                    player.volume = Math.min(1, player.volume + 0.1);
+                    showToast('볼륨: ' + Math.round(player.volume * 100) + '%');
+                    break;
+                case 'arrowdown':
+                    e.preventDefault();
+                    player.volume = Math.max(0, player.volume - 0.1);
+                    showToast('볼륨: ' + Math.round(player.volume * 100) + '%');
+                    break;
                 case 'f':
                     if (document.fullscreenElement) {
                         document.exitFullscreen();
@@ -453,6 +481,44 @@ document.addEventListener('DOMContentLoaded', function() {
                     break;
                 case 'm':
                     player.muted = !player.muted;
+                    showToast(player.muted ? '음소거' : '음소거 해제');
+                    break;
+                case 'p':
+                    togglePiP();
+                    break;
+                case ',':
+                case '<':
+                    // 재생 속도 감소
+                    var currentSpeedIndex = Array.from(speedSelect.options).findIndex(o => o.selected);
+                    if (currentSpeedIndex > 0) {
+                        speedSelect.selectedIndex = currentSpeedIndex - 1;
+                        player.playbackRate = parseFloat(speedSelect.value);
+                        showToast('속도: ' + speedSelect.value + 'x');
+                    }
+                    break;
+                case '.':
+                case '>':
+                    // 재생 속도 증가
+                    var currentSpeedIndex = Array.from(speedSelect.options).findIndex(o => o.selected);
+                    if (currentSpeedIndex < speedSelect.options.length - 1) {
+                        speedSelect.selectedIndex = currentSpeedIndex + 1;
+                        player.playbackRate = parseFloat(speedSelect.value);
+                        showToast('속도: ' + speedSelect.value + 'x');
+                    }
+                    break;
+                // 숫자 키로 해당 위치로 이동 (0-9)
+                case '0':
+                case '1':
+                case '2':
+                case '3':
+                case '4':
+                case '5':
+                case '6':
+                case '7':
+                case '8':
+                case '9':
+                    var percentage = parseInt(e.key) / 10;
+                    player.currentTime = player.duration * percentage;
                     break;
             }
         });
@@ -482,6 +548,33 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// Picture-in-Picture 토글
+function togglePiP() {
+    var player = document.getElementById('video-player');
+    if (!player) return;
+    
+    if (document.pictureInPictureElement) {
+        document.exitPictureInPicture()
+            .then(function() {
+                showToast('PiP 모드 종료');
+            })
+            .catch(function(error) {
+                console.error('PiP 종료 실패:', error);
+            });
+    } else if (document.pictureInPictureEnabled) {
+        player.requestPictureInPicture()
+            .then(function() {
+                showToast('PiP 모드 시작');
+            })
+            .catch(function(error) {
+                console.error('PiP 시작 실패:', error);
+                showToast('PiP를 지원하지 않는 브라우저입니다');
+            });
+    } else {
+        showToast('PiP를 지원하지 않는 브라우저입니다');
+    }
+}
 
 function openPlaylistModal() {
     document.getElementById('playlist-modal').classList.add('show');

@@ -1,40 +1,138 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_file, after_this_request
-from werkzeug.utils import secure_filename
-import yt_dlp
-import json
+"""
+MalgeunTube - 광고 없는 깨끗한 유튜브 경험
+"""
 import os
+import json
 import random
-import threading
 import uuid
 import glob
+import re
+import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, wraps
+from concurrent.futures import ThreadPoolExecutor
 
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session, send_file, after_this_request
+from werkzeug.utils import secure_filename
+from dotenv import load_dotenv
+import yt_dlp
+
+# 환경변수 로드
+load_dotenv()
+
+# Flask 확장 모듈 임포트
+try:
+    from flask_sqlalchemy import SQLAlchemy
+    from flask_caching import Cache
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    EXTENSIONS_AVAILABLE = True
+except ImportError:
+    EXTENSIONS_AVAILABLE = False
+
+# 설정 로드
+from config import get_config
+
+# Flask 앱 초기화
 app = Flask(__name__)
-app.secret_key = 'adfree-tube-secret-key-2024'
+config_obj = get_config()
+app.config.from_object(config_obj)
+config_obj.init_app(app)
 
-# 데이터 디렉토리 설정
-DATA_DIR = os.path.join(os.path.dirname(__file__), 'data')
-DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), 'downloads')
-HISTORY_FILE = os.path.join(DATA_DIR, 'history.json') # Default/Legacy
-CHANNELS_FILE = os.path.join(DATA_DIR, 'channels.json') # Default/Legacy
-PLAYLISTS_FILE = os.path.join(DATA_DIR, 'playlists.json') # Default/Legacy
+# 시크릿 키 설정 (환경변수에서 로드, 없으면 설정에서 가져옴)
+app.secret_key = app.config.get('SECRET_KEY') or os.urandom(24).hex()
+
+# ============== 로깅 설정 ==============
+
+def setup_logging():
+    """애플리케이션 로깅 설정"""
+    log_level = getattr(logging, app.config.get('LOG_LEVEL', 'INFO'))
+    log_dir = app.config.get('LOGS_DIR', 'logs')
+    
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    # 파일 핸들러 (로테이션)
+    file_handler = RotatingFileHandler(
+        os.path.join(log_dir, 'malgeuntube.log'),
+        maxBytes=app.config.get('LOG_FILE_MAX_BYTES', 10 * 1024 * 1024),
+        backupCount=app.config.get('LOG_FILE_BACKUP_COUNT', 5),
+        encoding='utf-8'
+    )
+    file_handler.setLevel(log_level)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    ))
+    
+    # 콘솔 핸들러
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(message)s'
+    ))
+    
+    # 앱 로거 설정
+    app.logger.handlers.clear()
+    app.logger.addHandler(file_handler)
+    app.logger.addHandler(console_handler)
+    app.logger.setLevel(log_level)
+    
+    app.logger.info("MalgeunTube 애플리케이션 시작")
+
+setup_logging()
+
+# ============== Flask 확장 초기화 ==============
+
+# 캐싱 설정
+cache = Cache(app, config={
+    'CACHE_TYPE': app.config.get('CACHE_TYPE', 'SimpleCache'),
+    'CACHE_DEFAULT_TIMEOUT': app.config.get('CACHE_DEFAULT_TIMEOUT', 300)
+})
+
+# Rate Limiting 설정
+if app.config.get('RATELIMIT_ENABLED', True):
+    limiter = Limiter(
+        key_func=get_remote_address,
+        app=app,
+        default_limits=[app.config.get('RATELIMIT_DEFAULT', '200 per day')],
+        storage_uri=app.config.get('RATELIMIT_STORAGE_URL', 'memory://'),
+        strategy=app.config.get('RATELIMIT_STRATEGY', 'fixed-window')
+    )
+else:
+    # Rate limiting 비활성화 시 더미 limiter
+    class DummyLimiter:
+        def limit(self, limit_value):
+            def decorator(f):
+                return f
+            return decorator
+    limiter = DummyLimiter()
+
+# ============== 디렉토리 및 파일 설정 ==============
+
+DATA_DIR = app.config.get('DATA_DIR')
+DOWNLOAD_DIR = app.config.get('DOWNLOAD_DIR')
+UPLOAD_FOLDER = app.config.get('UPLOAD_FOLDER')
+ALLOWED_EXTENSIONS = app.config.get('ALLOWED_EXTENSIONS', {'png', 'jpg', 'jpeg', 'gif', 'webp'})
+
+HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
+CHANNELS_FILE = os.path.join(DATA_DIR, 'channels.json')
+PLAYLISTS_FILE = os.path.join(DATA_DIR, 'playlists.json')
 PROFILES_FILE = os.path.join(DATA_DIR, 'profiles.json')
-
-# 다운로드 진행률 추적
-download_progress = {}  # {download_id: {'status': 'downloading', 'progress': 45.2, 'filename': '...', 'error': None}}
-DOWNLOAD_DIR = os.path.join(os.path.dirname(__file__), 'downloads')
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'static', 'avatars')
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-if not os.path.exists(DOWNLOAD_DIR):
-    os.makedirs(DOWNLOAD_DIR)
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+# 필요한 디렉토리 생성
+for directory in [DATA_DIR, DOWNLOAD_DIR, UPLOAD_FOLDER]:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+# ============== 다운로드 관리 ==============
+
+# 다운로드 진행률 및 작업 추적
+download_progress = {}
+download_tasks = {}  # {download_id: Future}
+executor = ThreadPoolExecutor(max_workers=3)  # 최대 3개 동시 다운로드
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -42,6 +140,7 @@ def allowed_file(filename):
 # ============== 데이터 관리 함수 ==============
 
 def load_json(filepath):
+    """JSON 파일 로드"""
     if os.path.exists(filepath):
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
@@ -50,10 +149,10 @@ def load_json(filepath):
                     return []
                 return json.loads(content)
         except json.JSONDecodeError as e:
-            print(f"Error decoding JSON from {filepath}: {e}")
+            app.logger.error(f"Error decoding JSON from {filepath}: {e}")
             return []
         except Exception as e:
-            print(f"Error loading JSON from {filepath}: {e}")
+            app.logger.error(f"Error loading JSON from {filepath}: {e}")
             return []
     return []
 
@@ -147,9 +246,12 @@ def download_video_task(video_id, download_type, quality, download_id):
     except Exception as e:
         download_progress[download_id]['status'] = 'error'
         download_progress[download_id]['error'] = str(e)
+        app.logger.error(f"Download task error: {e}")
 
 @app.route('/api/download', methods=['POST'])
+@limiter.limit(app.config.get('RATELIMIT_DOWNLOAD', '5 per minute'))
 def api_download():
+    """다운로드 시작 API (Rate limited: 분당 5회)"""
     data = request.get_json()
     video_id = data.get('video_id')
     download_type = data.get('type', 'video')
@@ -160,14 +262,12 @@ def api_download():
 
     # 다운로드 ID 생성
     download_id = str(uuid.uuid4())
+    
+    app.logger.info(f"Starting download for video: {video_id}, type: {download_type}")
 
-    # 백그라운드 스레드에서 다운로드 시작
-    thread = threading.Thread(
-        target=download_video_task,
-        args=(video_id, download_type, quality, download_id)
-    )
-    thread.daemon = True
-    thread.start()
+    # ThreadPoolExecutor를 사용하여 다운로드 시작
+    future = executor.submit(download_video_task, video_id, download_type, quality, download_id)
+    download_tasks[download_id] = future
 
     return jsonify({
         'success': True,
@@ -196,38 +296,73 @@ def api_download_progress(download_id):
         **progress_data
     })
 
+@app.route('/api/download/cancel/<download_id>', methods=['POST'])
+def api_download_cancel(download_id):
+    """다운로드 취소 API"""
+    if download_id not in download_progress:
+        return jsonify({'success': False, 'message': 'Download not found'})
+    
+    # 작업 취소 시도
+    if download_id in download_tasks:
+        future = download_tasks[download_id]
+        if not future.done():
+            future.cancel()
+            download_progress[download_id]['status'] = 'cancelled'
+            app.logger.info(f"Download cancelled: {download_id}")
+            return jsonify({'success': True, 'message': '다운로드가 취소되었습니다'})
+    
+    # 이미 완료되었거나 취소할 수 없는 경우
+    return jsonify({'success': False, 'message': '다운로드를 취소할 수 없습니다'})
+
 @app.route('/download/<filename>')
 def serve_download(filename):
+    """다운로드 파일 제공 (Path Traversal 방지)"""
     try:
+        # Path Traversal 방지: secure_filename 사용
+        safe_filename = secure_filename(filename)
+        if not safe_filename:
+            app.logger.warning(f"Invalid filename requested: {filename}")
+            return "Invalid filename", 400
+        
         title = request.args.get('title', 'video')
-        file_path = os.path.join(DOWNLOAD_DIR, filename)
+        file_path = os.path.join(DOWNLOAD_DIR, safe_filename)
+        
+        # 경로 검증: 파일이 DOWNLOAD_DIR 내에 있는지 확인
+        real_path = os.path.realpath(file_path)
+        real_download_dir = os.path.realpath(DOWNLOAD_DIR)
+        if not real_path.startswith(real_download_dir):
+            app.logger.warning(f"Path traversal attempt detected: {filename}")
+            return "Access denied", 403
         
         if not os.path.exists(file_path):
             return "File not found", 404
             
-        # Get original extension
-        _, ext = os.path.splitext(filename)
-        safe_filename = f"{title}{ext}"
+        # 확장자 추출
+        _, ext = os.path.splitext(safe_filename)
+        download_filename = secure_filename(f"{title}{ext}")
         
-        # Simple cleanup after request (optional, works on some WSGI servers)
+        # 다운로드 후 파일 정리
         @after_this_request
         def remove_file(response):
             try:
                 if os.path.exists(file_path):
                     os.remove(file_path)
+                    app.logger.debug(f"Downloaded file removed: {safe_filename}")
             except Exception as e:
-                print(f"Error removing file: {e}")
+                app.logger.error(f"Error removing file: {e}")
             return response
             
         return send_file(
             file_path, 
             as_attachment=True, 
-            download_name=safe_filename
+            download_name=download_filename
         )
     except Exception as e:
+        app.logger.error(f"Error serving download: {e}")
         return str(e), 500
 
 def save_json(filepath, data):
+    """JSON 파일 저장"""
     try:
         # 디렉토리가 존재하는지 확인
         directory = os.path.dirname(filepath)
@@ -236,9 +371,9 @@ def save_json(filepath, data):
 
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-        print(f"Successfully saved JSON to {filepath}")
+        app.logger.debug(f"Successfully saved JSON to {filepath}")
     except Exception as e:
-        print(f"Error saving JSON to {filepath}: {e}")
+        app.logger.error(f"Error saving JSON to {filepath}: {e}")
         raise
 
 # ============== 프로필 관리 함수 ==============
@@ -274,12 +409,10 @@ def get_data_path(file_type):
 
 @app.errorhandler(Exception)
 def handle_exception(e):
+    """전역 예외 핸들러"""
     # API 요청인 경우 JSON 응답 반환
     if request.path.startswith('/api/'):
-        print(f"=== Global exception handler for API ===")
-        print(f"Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        app.logger.error(f"API Error: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'message': f'서버 오류: {str(e)}'
@@ -289,15 +422,28 @@ def handle_exception(e):
 
 @app.errorhandler(404)
 def not_found(e):
+    """404 에러 핸들러"""
     if request.path.startswith('/api/'):
         return jsonify({'success': False, 'message': '요청한 API를 찾을 수 없습니다.'}), 404
     return render_template('404.html'), 404 if os.path.exists(os.path.join(app.template_folder, '404.html')) else (str(e), 404)
 
 @app.errorhandler(500)
 def internal_error(e):
+    """500 에러 핸들러"""
+    app.logger.error(f"Internal Server Error: {str(e)}", exc_info=True)
     if request.path.startswith('/api/'):
         return jsonify({'success': False, 'message': '내부 서버 오류가 발생했습니다.'}), 500
     return str(e), 500
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Rate Limit 에러 핸들러"""
+    app.logger.warning(f"Rate limit exceeded: {request.remote_addr} - {request.path}")
+    return jsonify({
+        'success': False,
+        'message': '요청 한도를 초과했습니다. 잠시 후 다시 시도해주세요.',
+        'retry_after': e.description
+    }), 429
 
 # ============== 프로필 라우트 ==============
 
@@ -310,27 +456,28 @@ def profiles_view():
 
 @app.route('/api/profile/create', methods=['POST'])
 def create_profile():
+    """새 프로필 생성"""
     try:
-        print("=== Profile creation started ===")
-        print(f"Request method: {request.method}")
-        print(f"Request content type: {request.content_type}")
+        app.logger.info("Profile creation started")
+        app.logger.debug(f"Request method: {request.method}")
+        app.logger.debug(f"Request content type: {request.content_type}")
 
         name = request.form.get('name')
-        print(f"Profile name: {name}")
+        app.logger.debug(f"Profile name: {name}")
 
         if not name:
-            print("Error: No name provided")
+            app.logger.warning("Profile creation: No name provided")
             return jsonify({'success': False, 'message': '이름을 입력해주세요.'})
 
         avatar_path = '/static/avatars/default.svg'
         if 'avatar' in request.files:
             file = request.files['avatar']
-            print(f"Avatar file: {file.filename}")
+            app.logger.debug(f"Avatar file: {file.filename}")
             if file and file.filename and allowed_file(file.filename):
                 filename = secure_filename(file.filename)
                 unique_filename = f"{uuid.uuid4()}_{filename}"
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-                print(f"Saving avatar to: {filepath}")
+                app.logger.debug(f"Saving avatar to: {filepath}")
                 file.save(filepath)
                 avatar_path = f"/static/avatars/{unique_filename}"
 
@@ -340,21 +487,17 @@ def create_profile():
             'avatar': avatar_path,
             'created_at': datetime.now().isoformat()
         }
-        print(f"New profile created: {new_profile}")
+        app.logger.info(f"New profile created: {new_profile.get('id')}")
 
         profiles = load_profiles()
-        print(f"Existing profiles count: {len(profiles)}")
+        app.logger.debug(f"Existing profiles count: {len(profiles)}")
         profiles.append(new_profile)
         save_profiles(profiles)
-        print("Profile saved successfully")
+        app.logger.info("Profile saved successfully")
 
         return jsonify({'success': True, 'profile': new_profile})
     except Exception as e:
-        print(f"=== Error creating profile ===")
-        print(f"Error type: {type(e).__name__}")
-        print(f"Error message: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        app.logger.error(f"Error creating profile: {e}", exc_info=True)
         return jsonify({'success': False, 'message': f'프로필 생성 중 오류 발생: {str(e)}'})
 
 @app.route('/api/profile/switch', methods=['POST'])
@@ -369,7 +512,7 @@ def switch_profile():
 
         return jsonify({'success': False, 'message': '프로필을 찾을 수 없습니다.'})
     except Exception as e:
-        print(f"Error switching profile: {e}")
+        app.logger.error(f"Error switching profile: {e}")
         return jsonify({'success': False, 'message': f'프로필 전환 중 오류 발생: {str(e)}'})
 
 @app.route('/api/profile/delete', methods=['POST'])
@@ -389,14 +532,14 @@ def delete_profile():
                 if os.path.exists(path):
                     os.remove(path)
         except Exception as file_error:
-            print(f"Error deleting profile data files: {file_error}")
+            app.logger.warning(f"Error deleting profile data files: {file_error}")
 
         if session.get('profile_id') == profile_id:
             session.pop('profile_id', None)
 
         return jsonify({'success': True})
     except Exception as e:
-        print(f"Error deleting profile: {e}")
+        app.logger.error(f"Error deleting profile: {e}")
         return jsonify({'success': False, 'message': f'프로필 삭제 중 오류 발생: {str(e)}'})
 
 @app.before_request
@@ -586,9 +729,60 @@ def get_progress(video_id):
             return p
     return None
 
+# ============== 검색 기록 관리 ==============
+
+def load_search_history():
+    """검색 기록 로드"""
+    search_history_file = os.path.join(DATA_DIR, f'search_history_{session.get("profile_id", "default")}.json')
+    return load_json(search_history_file)
+
+def save_search_history(history):
+    """검색 기록 저장"""
+    search_history_file = os.path.join(DATA_DIR, f'search_history_{session.get("profile_id", "default")}.json')
+    save_json(search_history_file, history)
+
+def save_search_query(query):
+    """검색 쿼리를 기록에 저장"""
+    if not query or len(query.strip()) < 2:
+        return
+    
+    history = load_search_history()
+    
+    # 중복 제거 (같은 검색어는 최신으로 업데이트)
+    history = [h for h in history if h.get('query', '').lower() != query.lower()]
+    
+    # 새 검색어 추가
+    history.insert(0, {
+        'query': query.strip(),
+        'searched_at': datetime.now().isoformat()
+    })
+    
+    # 최대 50개까지만 유지
+    history = history[:50]
+    
+    save_search_history(history)
+
+def get_search_suggestions(query):
+    """검색어 자동완성 제안"""
+    if not query or len(query) < 2:
+        return []
+    
+    history = load_search_history()
+    query_lower = query.lower()
+    
+    suggestions = []
+    for h in history:
+        search_query = h.get('query', '')
+        if search_query.lower().startswith(query_lower):
+            suggestions.append(search_query)
+    
+    return suggestions[:10]  # 최대 10개
+
 # ============== YouTube 데이터 함수 ==============
 
-def get_video_info(video_url):
+@cache.memoize(timeout=3600)  # 1시간 캐시
+def get_video_info_cached(video_url):
+    """비디오 정보 가져오기 (캐시됨) - is_subscribed 제외"""
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -630,10 +824,17 @@ def get_video_info(video_url):
                 'formats': formats[:10],
                 'url': info.get('url'),
                 'webpage_url': info.get('webpage_url'),
-                'is_subscribed': is_channel_subscribed(channel_id)
             }
     except Exception as e:
+        app.logger.error(f"Error getting video info: {e}")
         return {'error': str(e)}
+
+def get_video_info(video_url):
+    """비디오 정보 가져오기 (구독 상태 포함)"""
+    video_info = get_video_info_cached(video_url)
+    if 'error' not in video_info:
+        video_info['is_subscribed'] = is_channel_subscribed(video_info.get('channel_id', ''))
+    return video_info
 
 def get_playlist_info(playlist_url):
     ydl_opts = {
@@ -738,9 +939,12 @@ def get_related_videos(video_id, max_results=12):
             
             return videos[:max_results]
     except Exception as e:
+        app.logger.error(f"Error getting related videos: {e}")
         return []
 
+@cache.memoize(timeout=900)  # 15분 캐시
 def search_youtube(query, max_results=20):
+    """YouTube 검색 (캐시됨)"""
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -766,6 +970,7 @@ def search_youtube(query, max_results=20):
                         })
             return videos
     except Exception as e:
+        app.logger.error(f"Error searching YouTube: {e}")
         return {'error': str(e)}
 
 def get_trending_videos(max_results=20):
@@ -877,18 +1082,26 @@ def watch():
                          user_playlists=user_playlists)
 
 @app.route('/search')
+@limiter.limit(app.config.get('RATELIMIT_SEARCH', '10 per minute'))
 def search():
+    """검색 페이지 (Rate limited)"""
     query = request.args.get('q', '')
     results = []
+    search_history = load_search_history()
+    
     if query:
-        results = search_youtube(query, max_results=30)  # 초기 30개 로드
+        # 검색 기록 저장
+        save_search_query(query)
+        
+        results = search_youtube(query, max_results=30)
         if isinstance(results, list):
             for video in results:
                 if video.get('channel_id'):
                     video['is_subscribed'] = is_channel_subscribed(video['channel_id'])
     
     user_playlists = load_playlists()
-    return render_template('search.html', query=query, results=results, user_playlists=user_playlists)
+    return render_template('search.html', query=query, results=results, 
+                         user_playlists=user_playlists, search_history=search_history)
 
 @app.route('/history')
 def history():
@@ -1002,8 +1215,8 @@ def api_create_playlist():
 def api_add_to_playlist(playlist_id):
     try:
         data = request.get_json()
-        print(f"=== Adding to playlist {playlist_id} ===")
-        print(f"Request data: {data}")
+        app.logger.debug(f"Adding to playlist {playlist_id}")
+        app.logger.debug(f"Request data: {data}")
 
         video_info = {
             'id': data.get('video_id'),
@@ -1012,19 +1225,17 @@ def api_add_to_playlist(playlist_id):
             'duration': data.get('duration'),
             'channel': data.get('channel')
         }
-        print(f"Video info: {video_info}")
+        app.logger.debug(f"Video info: {video_info}")
 
         success = add_to_playlist(playlist_id, video_info)
-        print(f"Add result: {success}")
+        app.logger.debug(f"Add result: {success}")
 
         if success:
             return jsonify({'success': True, 'message': '플레이리스트에 추가되었습니다.'})
         else:
             return jsonify({'success': False, 'message': '이미 플레이리스트에 있거나 추가할 수 없습니다.'})
     except Exception as e:
-        print(f"Error adding to playlist: {e}")
-        import traceback
-        traceback.print_exc()
+        app.logger.error(f"Error adding to playlist: {e}", exc_info=True)
         return jsonify({'success': False, 'message': f'오류 발생: {str(e)}'})
 
 @app.route('/api/playlist/<playlist_id>/remove', methods=['POST'])
@@ -1064,7 +1275,7 @@ def api_reorder_playlist(playlist_id):
 
         return jsonify({'success': False, 'message': '플레이리스트를 찾을 수 없습니다'})
     except Exception as e:
-        print(f"Error reordering playlist: {e}")
+        app.logger.error(f"Error reordering playlist: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/playlist/<playlist_id>/move', methods=['POST'])
@@ -1110,7 +1321,7 @@ def api_move_video_in_playlist(playlist_id):
 
         return jsonify({'success': False, 'message': '플레이리스트를 찾을 수 없습니다'})
     except Exception as e:
-        print(f"Error moving video: {e}")
+        app.logger.error(f"Error moving video: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 # ============== 나중에 볼 영상 API ==============
@@ -1134,7 +1345,7 @@ def api_add_watch_later():
         else:
             return jsonify({'success': False, 'message': '이미 추가된 영상입니다'})
     except Exception as e:
-        print(f"Error adding to watch later: {e}")
+        app.logger.error(f"Error adding to watch later: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/watch-later/remove', methods=['POST'])
@@ -1145,7 +1356,7 @@ def api_remove_watch_later():
         remove_from_watch_later(video_id)
         return jsonify({'success': True, 'message': '나중에 볼 영상에서 제거되었습니다'})
     except Exception as e:
-        print(f"Error removing from watch later: {e}")
+        app.logger.error(f"Error removing from watch later: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/watch-later/check/<video_id>', methods=['GET'])
@@ -1166,7 +1377,7 @@ def api_update_progress():
         update_progress(video_id, current_time, duration)
         return jsonify({'success': True})
     except Exception as e:
-        print(f"Error updating progress: {e}")
+        app.logger.error(f"Error updating progress: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/progress/<video_id>', methods=['GET'])
@@ -1228,7 +1439,7 @@ def api_get_stats():
 
         return jsonify({'success': True, 'stats': stats})
     except Exception as e:
-        print(f"Error getting stats: {e}")
+        app.logger.error(f"Error getting stats: {e}")
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/channel/<channel_id>/videos', methods=['GET'])
@@ -1257,12 +1468,13 @@ def api_get_channel_videos(channel_id):
             'total': len(channel_info.get('videos', []))
         })
     except Exception as e:
-        print(f"Error loading more videos: {e}")
+        app.logger.error(f"Error loading more videos: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/search', methods=['GET'])
+@limiter.limit(app.config.get('RATELIMIT_SEARCH', '10 per minute'))
 def api_search():
-    """검색 결과를 더 가져오는 API"""
+    """검색 API (Rate limited: 분당 10회)"""
     try:
         query = request.args.get('q', '')
         offset = request.args.get('offset', 0, type=int)
@@ -1271,7 +1483,7 @@ def api_search():
         if not query:
             return jsonify({'success': False, 'error': 'Query is required'})
 
-        print(f"=== API Search: {query}, offset: {offset}, limit: {limit} ===")
+        app.logger.debug(f"API Search: {query}, offset: {offset}, limit: {limit}")
 
         # 더 많은 결과 요청 (최대 50개까지)
         max_results = min(offset + limit, 50)
@@ -1297,9 +1509,7 @@ def api_search():
             'total': len(results)
         })
     except Exception as e:
-        print(f"Error in API search: {e}")
-        import traceback
-        traceback.print_exc()
+        app.logger.error(f"Error in API search: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/recommended', methods=['GET'])
@@ -1309,7 +1519,7 @@ def api_recommended():
         offset = request.args.get('offset', 0, type=int)
         limit = request.args.get('limit', 12, type=int)
 
-        print(f"=== API Recommended: offset: {offset}, limit: {limit} ===")
+        app.logger.debug(f"API Recommended: offset: {offset}, limit: {limit}")
 
         history = load_history()
 
@@ -1348,10 +1558,27 @@ def api_recommended():
             'total': len(unique_recommended)
         })
     except Exception as e:
-        print(f"Error in API recommended: {e}")
-        import traceback
-        traceback.print_exc()
+        app.logger.error(f"Error in API recommended: {e}", exc_info=True)
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/search/suggestions', methods=['GET'])
+def api_search_suggestions():
+    """검색어 자동완성 API"""
+    query = request.args.get('q', '')
+    suggestions = get_search_suggestions(query)
+    return jsonify({'success': True, 'suggestions': suggestions})
+
+@app.route('/api/search/history', methods=['GET'])
+def api_search_history():
+    """검색 기록 API"""
+    history = load_search_history()
+    return jsonify({'success': True, 'history': history[:20]})
+
+@app.route('/api/search/history/clear', methods=['POST'])
+def api_clear_search_history():
+    """검색 기록 삭제 API"""
+    save_search_history([])
+    return jsonify({'success': True, 'message': '검색 기록이 삭제되었습니다'})
 
 # ============== 템플릿 필터 ==============
 
