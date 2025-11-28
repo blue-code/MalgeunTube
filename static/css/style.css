@@ -1467,3 +1467,246 @@ button {
         width: 100%;
     }
 }
+
+/* ========== TOUCH GESTURE STYLES ========== */
+
+/* Gesture Overlay Container */
+.gesture-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+    overflow: hidden;
+}
+
+/* Double Tap Feedback */
+.double-tap-feedback {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 33.33%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.double-tap-feedback.left {
+    left: 0;
+}
+
+.double-tap-feedback.right {
+    right: 0;
+}
+
+.double-tap-feedback.center {
+    left: 33.33%;
+    width: 33.34%;
+}
+
+.double-tap-feedback.active {
+    opacity: 1;
+}
+
+.double-tap-feedback .ripple {
+    position: absolute;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.2);
+    transform: scale(0);
+    animation: none;
+}
+
+.double-tap-feedback.active .ripple {
+    animation: ripple-effect 0.5s ease-out forwards;
+}
+
+@keyframes ripple-effect {
+    0% {
+        transform: scale(0);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(2);
+        opacity: 0;
+    }
+}
+
+.double-tap-feedback .icon {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: white;
+    font-size: 1.25rem;
+    font-weight: 600;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    z-index: 1;
+    transform: scale(0);
+    opacity: 0;
+}
+
+.double-tap-feedback.active .icon {
+    animation: icon-pop 0.4s ease-out forwards;
+}
+
+@keyframes icon-pop {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+.double-tap-feedback .seek-text {
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.double-tap-feedback .play-pause-icon {
+    font-size: 2rem;
+}
+
+/* Control Indicator (Volume/Brightness) */
+.control-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background-color: rgba(0, 0, 0, 0.7);
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    min-width: 60px;
+}
+
+.control-indicator.active {
+    opacity: 1;
+}
+
+.control-indicator .indicator-icon {
+    font-size: 1.5rem;
+}
+
+.control-indicator .indicator-bar {
+    width: 6px;
+    height: 100px;
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+    position: relative;
+    overflow: hidden;
+}
+
+.control-indicator .indicator-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: white;
+    border-radius: 3px;
+    transition: height 0.1s ease;
+}
+
+.control-indicator.volume .indicator-fill {
+    background-color: #4CAF50;
+}
+
+.control-indicator.brightness .indicator-fill {
+    background-color: #FFC107;
+}
+
+.control-indicator .indicator-text {
+    color: white;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* Seek Indicator */
+.seek-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 1rem 1.5rem;
+    background-color: rgba(0, 0, 0, 0.7);
+    border-radius: 12px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.seek-indicator.active {
+    opacity: 1;
+}
+
+.seek-indicator .seek-time {
+    color: white;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.seek-indicator .seek-preview {
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.875rem;
+}
+
+/* Brightness Filter */
+.brightness-filter {
+    position: absolute;
+    inset: 0;
+    background-color: black;
+    pointer-events: none;
+    opacity: 0;
+    z-index: 5;
+}
+
+/* Touch Device Adjustments */
+@media (hover: none) and (pointer: coarse) {
+    .video-wrapper {
+        /* Prevent text selection on touch */
+        -webkit-user-select: none;
+        user-select: none;
+        /* Prevent long-press context menu */
+        -webkit-touch-callout: none;
+    }
+    
+    /* Slightly larger touch targets for controls */
+    .video-controls .btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+}
+
+/* Dark Theme Adjustments */
+[data-theme="dark"] .control-indicator {
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
+[data-theme="dark"] .seek-indicator {
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Light Theme Adjustments */
+[data-theme="light"] .control-indicator {
+    background-color: rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="light"] .seek-indicator {
+    background-color: rgba(0, 0, 0, 0.7);
+}
