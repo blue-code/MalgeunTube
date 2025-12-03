@@ -76,8 +76,14 @@ def setup_logging():
     app.logger.addHandler(file_handler)
     app.logger.addHandler(console_handler)
     app.logger.setLevel(log_level)
-    
+
+    app.logger.info("=" * 60)
     app.logger.info("MalgeunTube 애플리케이션 시작")
+    app.logger.info("=" * 60)
+    app.logger.info("로그인 정보:")
+    app.logger.info("  아이디: malgeun_admin")
+    app.logger.info("  비밀번호: Tube2024!@Secure")
+    app.logger.info("=" * 60)
 
 setup_logging()
 
@@ -564,25 +570,64 @@ def delete_profile():
         app.logger.error(f"Error deleting profile: {e}")
         return jsonify({'success': False, 'message': f'프로필 삭제 중 오류 발생: {str(e)}'})
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """로그인 페이지"""
+    if session.get('logged_in'):
+        return redirect(url_for('profiles_view'))
+
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+
+        # 하드코딩된 계정 확인
+        if username == 'malgeun_admin' and password == 'Tube2024!@Secure':
+            session['logged_in'] = True
+            session.permanent = True
+            app.logger.info(f"User logged in: {username}")
+            return redirect(url_for('profiles_view'))
+        else:
+            return render_template('login.html', error='아이디 또는 비밀번호가 올바르지 않습니다.')
+
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """로그아웃"""
+    session.clear()
+    app.logger.info("User logged out")
+    return redirect(url_for('login'))
+
 @app.before_request
-def check_profile():
-    # Static resources and specific routes don't need profile check
-    # Check by path (URL) not endpoint (function name)
+def check_auth():
+    """로그인 및 프로필 확인"""
+    # Static resources don't need auth check
     if (request.path.startswith('/static/') or
-        request.path.startswith('/api/profile') or
-        request.path == '/profiles' or
         request.endpoint == 'static'):
+        return
+
+    # Login page doesn't need auth check
+    if request.path in ['/login', '/logout']:
+        return
+
+    # Check if user is logged in
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+
+    # Profile-related routes don't need profile check
+    if (request.path.startswith('/api/profile') or
+        request.path == '/profiles'):
         return
 
     # If no profile in session, redirect to profiles page
     if not session.get('profile_id'):
         return redirect(url_for('profiles_view'))
-    
+
     # Pass current profile to templates
-    if request.endpoint: # Only for view functions
+    if request.endpoint:
         profile = get_profile(session['profile_id'])
         # If session has ID but profile deleted, force logout
-        if not profile: 
+        if not profile:
             session.pop('profile_id', None)
             return redirect(url_for('profiles_view'))
         app.jinja_env.globals['current_profile'] = profile
@@ -1737,4 +1782,4 @@ def format_timeago(iso_string):
         return ''
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5678)
